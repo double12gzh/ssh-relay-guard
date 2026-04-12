@@ -3,7 +3,7 @@
   "publisher": "double12gzh",
   "displayName": "SSH Relay Guard",
   "description": "SSH Relay Guard (SRG) manages reverse SSH tunnels and transparently routes traffic through your local proxy, bypassing network restrictions and DNS pollution on remote servers.",
-  "icon": "srg-icon.png",
+  "icon": "docs/srg-icon.png",
   "version": "0.0.1",
   "repository": {
     "type": "git",

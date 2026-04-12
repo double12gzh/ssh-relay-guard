@@ -1,5 +1,9 @@
 **中文** | [English](README.md)
 
+<p align="center">
+  <img src="docs/srg-icon.png" alt="SRG Icon" width="160" />
+</p>
+
 # SSH Relay Guard (SRG)
 
 **SSH Relay Guard** 是一个 Antigravity 扩展，用于管理 SSH 反向隧道，并将远程服务器的流量透明转发到本地代理 —— 绕过远端服务器上的网络限制和 DNS 污染。

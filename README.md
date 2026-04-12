@@ -1,5 +1,9 @@
 [中文](README.zh-CN.md) | **English**
 
+<p align="center">
+  <img src="docs/srg-icon.png" alt="SRG Icon" width="160" />
+</p>
+
 # SSH Relay Guard (SRG)
 
 **SSH Relay Guard** is an Antigravity extension that manages SSH reverse tunnels and transparently routes remote traffic through your local proxy — bypassing network restrictions and DNS pollution on remote servers.
