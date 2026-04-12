@@ -35,9 +35,15 @@ echo "[INFO] SRG 工具 + mgraftcp 已删除"
 # 3. 恢复 LS 原始二进制
 _find_args=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
-    _find_args+=("$HOME/$_d")
+    if [ -d "$HOME/$_d" ]; then
+        _find_args+=("$HOME/$_d")
+    fi
 done
-BAKS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/*" -name "language_server_linux_*.bak" -type f 2>/dev/null || true)
+if [ ${#_find_args[@]} -gt 0 ]; then
+    BAKS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*.bak" 2>/dev/null || true)
+else
+    BAKS=""
+fi
 if [ -n "$BAKS" ]; then
     N=0
     while IFS= read -r BAK; do

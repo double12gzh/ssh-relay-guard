@@ -28,7 +28,7 @@ function isWindowsEnvironmentError(input: string): boolean {
  * Currently only Antigravity is supported. To add more IDEs (VS Code, Cursor, etc.),
  * append their server directory names here (e.g. '.vscode-server', '.cursor-server').
  */
-const IDE_SERVER_DIRS = ['.antigravity-server'];
+const IDE_SERVER_DIRS = ['.antigravity-server', '.vscode-server', '.cursor-server', '.windsurf-server'];
 
 /**
  * Derive the IDE server root from extensionPath.
@@ -132,7 +132,7 @@ async function checkSSHConfig(remoteProxyPort: number): Promise<DiagnosticCheck>
                 if (hosts.length === 0) {
                     check.status = 'error';
                     check.message = 'config.srg exists but has no host blocks configured';
-                    check.suggestion = 'Run "Enable Port Forwarding" command to configure SSH.';
+                    check.suggestion = 'Run "Add Host Forwarding" command to configure SSH.';
                 } else {
                     // Check if any host has the expected remotePort
                     const portMatches = [...srgContent.matchAll(/RemoteForward\s+(\d+)/g)];
@@ -145,22 +145,22 @@ async function checkSSHConfig(remoteProxyPort: number): Promise<DiagnosticCheck>
                     } else if (configuredPorts.length > 0) {
                         check.status = 'warning';
                         check.message = `RemoteForward port mismatch: configured [${configuredPorts.join(', ')}], expected ${remoteProxyPort}`;
-                        check.suggestion = 'Update port in SRG panel or run "Enable Port Forwarding" command.';
+                        check.suggestion = 'Update port in SRG panel or run "Add Host Forwarding" command.';
                     } else {
                         check.status = 'error';
                         check.message = 'RemoteForward directive not found in config.srg';
-                        check.suggestion = 'Run "Enable Port Forwarding" command to configure SSH.';
+                        check.suggestion = 'Run "Add Host Forwarding" command to configure SSH.';
                     }
                 }
             } catch {
                 check.status = 'error';
                 check.message = 'config.srg file not found despite Include line in ~/.ssh/config';
-                check.suggestion = 'Run "Enable Port Forwarding" command to recreate SSH configuration.';
+                check.suggestion = 'Run "Add Host Forwarding" command to recreate SSH configuration.';
             }
         } else {
             check.status = 'error';
             check.message = 'SSH config does not include config.srg';
-            check.suggestion = 'Run "Enable Port Forwarding" command to configure SSH.';
+            check.suggestion = 'Run "Add Host Forwarding" command to configure SSH.';
         }
     } catch {
         check.status = 'error';
@@ -322,7 +322,7 @@ async function checkLanguageServerWrapper(extensionPath?: string): Promise<Diagn
         for (const root of searchRoots) {
             try {
                 const { stdout } = await execAsync(
-                    `find "${root}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$" | head -1`
+                    `find "${root}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\\.bak$" | head -1`
                 );
                 if (stdout.trim()) {
                     targetPath = stdout.trim();

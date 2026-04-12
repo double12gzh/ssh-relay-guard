@@ -36,9 +36,15 @@ fi
 # 4. LS wrapper
 _find_args=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
-    _find_args+=("$HOME/$_d/bin")
+    if [ -d "$HOME/$_d" ]; then
+        _find_args+=("$HOME/$_d")
+    fi
 done
-LS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$" | head -1 || true)
+if [ ${#_find_args[@]} -gt 0 ]; then
+    LS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$" | head -1 || true)
+else
+    LS=""
+fi
 if [ -n "$LS" ] && head -1 "$LS" 2>/dev/null | grep -q "^#!/bin/bash"; then
     echo -e "  \033[0;32m✓\033[0m LS Wrapper: 已配置 (始终走代理)"
 elif [ -z "$LS" ]; then

@@ -25,7 +25,7 @@ EXTENSION_VERSION="${EXTENSION_VERSION:-unknown}"
 PROXY_ADDR="${PROXY_HOST}:${PROXY_PORT}"
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
-IDE_SERVER_DIRS=(".antigravity-server")
+IDE_SERVER_DIRS=(".antigravity-server" ".vscode-server" ".cursor-server" ".windsurf-server")
 
 # ============================================================================
 # Debug Logging
@@ -142,10 +142,19 @@ get_wrapper_proxy_type() {
     grep -oP 'PROXY_TYPE="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
 }
 
-# Check if target is a wrapper script (bash script)
-is_wrapper_script() {
+# Check if target is ANY bash script (broad check for backup safety)
+# If the file starts with #!/bin/bash, it's NOT the original ELF binary
+# and must NOT be backed up as .bak (regardless of who created it)
+is_bash_script() {
     local target="$1"
     head -1 "$target" 2>/dev/null | grep -q "^#!/bin/bash"
+}
+
+# Check if target is specifically an SRG wrapper (strict check for version/update logic)
+is_srg_wrapper() {
+    local target="$1"
+    is_bash_script "$target" \
+        && grep -q "mgraftcp\|WRAPPER_VERSION" "$target" 2>/dev/null
 }
 
 # Determine if wrapper needs to be updated
@@ -154,7 +163,7 @@ check_needs_update() {
     local target="$1"
     
     # Check 1: Not a wrapper script (original binary) → needs wrapper creation
-    if ! is_wrapper_script "$target"; then
+    if ! is_srg_wrapper "$target"; then
         echo "new_install"
         return 0
     fi
@@ -190,13 +199,18 @@ check_needs_update() {
 echo "[SEARCH] Looking for language servers..."
 _find_args=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
-    _find_args+=("$HOME/$_d/bin")
+    if [ -d "$HOME/$_d" ]; then
+        _find_args+=("$HOME/$_d")
+    fi
 done
-TARGETS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$")
+# Provide fallback to check at least something, preventing find error
+if [ ${#_find_args[@]} -eq 0 ]; then
+    _find_args+=("$HOME/.antigravity-server" "$HOME/.vscode-server" "$HOME/.cursor-server" "$HOME/.windsurf-server")
+fi
+TARGETS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$")
 
 if [ -z "$TARGETS" ]; then
-    error_log "No language servers found!"
-    exit 1
+    error_log "No language servers found! Will continue to deploy tools."
 fi
 
 TARGET_COUNT=$(echo "$TARGETS" | wc -l)
@@ -224,7 +238,7 @@ while IFS= read -r TARGET; do
         info_log "Update needed: $UPDATE_REASON"
         
         # Log current wrapper state for debugging
-        if is_wrapper_script "$TARGET"; then
+        if is_srg_wrapper "$TARGET"; then
             debug_log "Current wrapper state:"
             debug_log "  Version: $(get_wrapper_version "$TARGET")"
             debug_log "  Proxy: $(get_wrapper_proxy_addr "$TARGET")"
@@ -239,7 +253,7 @@ while IFS= read -r TARGET; do
 
     # Create backup if needed
     if [ ! -f "$BAK" ]; then
-        if is_wrapper_script "$TARGET"; then
+        if is_bash_script "$TARGET"; then
             error_log "Target is a wrapper script but no backup exists!"
             error_log "Cannot proceed without original binary backup"
             continue
@@ -275,6 +289,7 @@ EXTENSION_BIN_PATH="__EXTENSION_BIN_PATH_PLACEHOLDER__"
 
 # Dynamically find mgraftcp-fakedns and libdnsredir at runtime
 find_binaries() {
+    local IDE_SERVER_DIRS=(".antigravity-server" ".vscode-server" ".cursor-server" ".windsurf-server")
     local arch=$(uname -m)
     local binary_name=""
     local lib_name=""
@@ -465,10 +480,16 @@ else
 fi
 _find_args_status=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
-    _find_args_status+=("$HOME/$_d/bin")
+    if [ -d "$HOME/$_d" ]; then
+        _find_args_status+=("$HOME/$_d")
+    fi
 done
-LS=$(find "${_find_args_status[@]}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$" | head -1 || true)
-if [ -n "$LS" ] && head -1 "$LS" 2>/dev/null | grep -q "^#!/bin/bash"; then
+if [ ${#_find_args_status[@]} -gt 0 ]; then
+    LS=$(find "${_find_args_status[@]}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$" | head -1 || true)
+else
+    LS=""
+fi
+if [ -n "$LS" ] && head -1 "$LS" 2>/dev/null | grep -q "^#!/bin/bash" && grep -q "mgraftcp" "$LS" 2>/dev/null; then
     echo -e "  \033[0;32m✓\033[0m LS Wrapper: configured"
 elif [ -z "$LS" ]; then
     echo -e "  \033[2m○\033[0m LS Wrapper: LS not installed"

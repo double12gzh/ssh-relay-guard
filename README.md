@@ -1,5 +1,9 @@
 [中文](README.zh-CN.md) | **English**
 
+<p align="center">
+  <img src="docs/srg-icon.png" alt="SRG Icon" width="160" />
+</p>
+
 # SSH Relay Guard (SRG)
 
 **SSH Relay Guard** is an Antigravity extension that manages SSH reverse tunnels and transparently routes remote traffic through your local proxy — bypassing network restrictions and DNS pollution on remote servers.
@@ -47,16 +51,17 @@ SRG uses a **local + remote dual deployment** model, with each side handling dif
 
 1. Search for and install **SSH Relay Guard** in the Antigravity extension marketplace
 2. Open settings and set `localProxyPort` to your local proxy port (default `7890`)
+3. Run command `SSH Relay Guard: Add Host Forwarding` and enter the remote hostname (as in `~/.ssh/config`)
 
 **Remote side**
 
-3. Connect to your remote server via SSH through Antigravity
-4. Install **SSH Relay Guard** again in the remote extension list
-5. Restart the remote window when prompted (may require multiple restarts)
+4. Connect to your remote server via SSH through Antigravity
+5. Install **SSH Relay Guard** again in the remote extension list
+6. Restart the remote window when prompted (may require multiple restarts)
 
 **Verify**
 
-6. Open the SRG Dashboard → Run "Health Check" → All items showing ✅ means setup is complete
+7. Open the SRG Dashboard → Run "Health Check" → All items showing ✅ means setup is complete
 
 ---
 
@@ -78,8 +83,8 @@ SRG uses a **local + remote dual deployment** model, with each side handling dif
 | Command | Description |
 |---|---|
 | `SSH Relay Guard: Show Dashboard` | Open the status dashboard |
-| `SSH Relay Guard: Enable Port Forwarding` | Configure SSH tunnel for a host |
-| `SSH Relay Guard: Disable Port Forwarding` | Remove SSH tunnel for a host |
+| `SSH Relay Guard: Add Host Forwarding` | Configure SSH tunnel for a host |
+| `SSH Relay Guard: Remove Host Forwarding` | Remove SSH tunnel for a host |
 | `SSH Relay Guard: Run Health Check` | Full diagnostic report |
 | `SSH Relay Guard: Setup Remote Environment` | Install language server wrapper |
 | `SSH Relay Guard: Rollback Remote Environment` | Restore original language server |

@@ -17,11 +17,15 @@ IDE_SERVER_DIRS=(".antigravity-server")
 
 _find_args=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
-    _find_args+=("$HOME/$_d/bin")
+    if [ -d "$HOME/$_d" ]; then
+        _find_args+=("$HOME/$_d")
+    fi
 done
+if [ ${#_find_args[@]} -eq 0 ]; then
+    _find_args+=("$HOME/.antigravity-server")
+fi
 TARGETS=$(find "${_find_args[@]}" \
-    -path "*/extensions/*/bin/language_server_linux_*" \
-    -type f 2>/dev/null | grep -v ".bak$" || true)
+    -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$" || true)
 
 if [ -z "$TARGETS" ]; then
     echo "[WARN] 未找到 Language Server 二进制 (IDE 可能未安装)"

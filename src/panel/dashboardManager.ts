@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { runDiagnostics, DiagnosticReport, generateReportText } from '../diagnostics/healthChecker';
 import { ConnectionMonitor, TrafficStats } from '../traffic/connectionMonitor';
 import { ConfigService } from '../core/configService';
-import { isPortReachable } from '../utils/portProbe';
+import { isPortReachable, isSrgSetupCompleted } from '../utils/portProbe';
 import { dict, Lang } from './translations';
 import { buildPanelHtml, buildTrafficHtml, PanelContext, resolveStatusAppearance } from './panelRenderer';
 
@@ -16,6 +16,11 @@ export interface ProxyStatus {
     remoteProxyReachable: boolean;
     lastUpdated: Date;
     languageServerConfigured?: boolean;
+    remoteSetupCompleted?: boolean;
+    /** Whether any host has been configured locally (config.srg has entries) */
+    hasConfiguredHosts?: boolean;
+    /** List of configured host names from config.srg */
+    configuredHosts?: string[];
 }
 
 type StatusUpdateCallback = (status: ProxyStatus) => void;
@@ -38,6 +43,7 @@ export class DashboardManager {
     private connectionMonitor: ConnectionMonitor;
     private currentDiagnosticReport: DiagnosticReport | null = null;
     private isRunningDiagnostics: boolean = false;
+    private isVerifying: boolean = false;
     private currentLang: Lang = 'zh';
 
     constructor(private isLocal: boolean, private context: vscode.ExtensionContext, private configService: ConfigService) {
@@ -67,6 +73,15 @@ export class DashboardManager {
 
         this.updateStatusBar();
         this.statusBarItem.show();
+    }
+
+    /**
+     * Set the verifying state — when true, status bar shows spinning icon.
+     * Used during startup full-connectivity checks to prevent premature green.
+     */
+    setVerifying(verifying: boolean): void {
+        this.isVerifying = verifying;
+        this.updateStatusBar();
     }
 
     /**
@@ -125,10 +140,15 @@ export class DashboardManager {
                 this.currentStatus.localProxyPort
             );
         } else {
-            this.currentStatus.remoteProxyReachable = await isPortReachable(
-                this.currentStatus.remoteProxyHost,
-                this.currentStatus.remoteProxyPort
-            );
+            const [reachable, setupDone] = await Promise.all([
+                isPortReachable(
+                    this.currentStatus.remoteProxyHost,
+                    this.currentStatus.remoteProxyPort
+                ),
+                isSrgSetupCompleted(),
+            ]);
+            this.currentStatus.remoteProxyReachable = reachable;
+            this.currentStatus.remoteSetupCompleted = setupDone;
         }
 
         this.currentStatus.lastUpdated = new Date();
@@ -138,11 +158,13 @@ export class DashboardManager {
         this.notifyCallbacks();
     }
 
-    updateSSHConfigStatus(enabled: boolean, port?: number): void {
+    updateSSHConfigStatus(enabled: boolean, port?: number, hosts?: string[]): void {
         this.currentStatus.sshConfigEnabled = enabled;
         if (port !== undefined) {
             this.currentStatus.remoteProxyPort = port;
         }
+        this.currentStatus.hasConfiguredHosts = (hosts !== undefined && hosts.length > 0) || enabled;
+        this.currentStatus.configuredHosts = hosts;
         this.currentStatus.lastUpdated = new Date();
         this.updateStatusBar();
         this.updatePanelIfOpen();
@@ -213,14 +235,56 @@ export class DashboardManager {
                         // Language change requires full rerender for all translated strings
                         this.forceRenderPanel();
                         break;
-                    case 'closeRemote':
-                        vscode.window.showInformationMessage(
-                            'After closing: 1) Open a new local window  2) Connect to remote from there',
-                            'Got it'
-                        ).then(() => {
-                            vscode.commands.executeCommand('workbench.action.remote.close');
-                        });
+                    case 'closeRemote': {
+                        // Detect hostname: try env.remoteName, fall back to extension host env
+                        let hostname = 'your-host';
+                        const remoteName = vscode.env.remoteName;
+                        if (remoteName && remoteName !== 'ssh-remote') {
+                            hostname = remoteName;
+                        } else {
+                            // Try parsing from environment
+                            const sshConn = process.env['SSH_CONNECTION'];
+                            if (sshConn) {
+                                // SSH_CONNECTION format: "client_ip client_port server_ip server_port"
+                                // We need the hostname from config, not IP. Try hostname command.
+                                try {
+                                    const { execSync } = require('child_process');
+                                    hostname = String(execSync('hostname -s 2>/dev/null || hostname', { timeout: 2000 })).trim();
+                                } catch { /* keep default */ }
+                            }
+                        }
+                        const cleanupCmd = `ssh -O exit ${hostname}`;
+                        const port = this.configService.remoteProxyPort;
+                        const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} ${hostname}`;
+
+                        const action = await vscode.window.showWarningMessage(
+                            `This will close the remote VS Code window.\n\n` +
+                            `⚠️ The SSH tunnel (ControlMaster) may persist on the local machine.\n` +
+                            `To fully close the tunnel, run on LOCAL terminal:\n` +
+                            `  ${cleanupCmd}\n\n` +
+                            `To manually establish the tunnel later:\n` +
+                            `  ${tunnelCmd}`,
+                            { modal: true },
+                            'Close & Copy Commands',
+                            'Just Close',
+                            'Cancel'
+                        );
+
+                        if (action === 'Cancel' || !action) { break; }
+
+                        if (action === 'Close & Copy Commands') {
+                            const clipboardText = `# 1. Close existing tunnel\n${cleanupCmd}\n\n# 2. Establish new background static tunnel\n${tunnelCmd}`;
+                            await vscode.env.clipboard.writeText(clipboardText);
+                            vscode.window.showInformationMessage(
+                                `Copied manual commands to clipboard. Paste in local terminal to manage the tunnel manually.`
+                            );
+                            // Brief delay so user can see the message
+                            await new Promise(r => setTimeout(r, 1500));
+                        }
+
+                        vscode.commands.executeCommand('workbench.action.remote.close');
                         break;
+                    }
                     case 'rollback':
                         vscode.commands.executeCommand('ssh-relay-guard.rollback');
                         break;
@@ -395,6 +459,17 @@ export class DashboardManager {
     }
 
     private updateStatusBar(): void {
+        // During startup verification: show spinning icon, don't resolve final status
+        if (this.isVerifying) {
+            this.statusBarItem.text = '$(sync~spin) SRG';
+            this.statusBarItem.color = '#fbbf24';
+            this.statusBarItem.tooltip = this.currentLang === 'zh'
+                ? 'SSH Relay Guard (SRG)\n🔄 正在检查连接...'
+                : 'SSH Relay Guard (SRG)\n🔄 Checking connectivity...';
+            this.statusBarItem.backgroundColor = undefined;
+            return;
+        }
+
         const status = this.currentStatus;
         const t = dict[this.currentLang];
         const { color } = resolveStatusAppearance(status, t);
@@ -406,13 +481,23 @@ export class DashboardManager {
                 tooltip = 'SSH Relay Guard (SRG)\n✅ Connected';
             } else if (status.sshConfigEnabled) {
                 tooltip = 'SSH Relay Guard (SRG)\n⚠️ SSH configured, proxy unreachable';
+            } else if (status.hasConfiguredHosts === false) {
+                tooltip = this.currentLang === 'zh'
+                    ? 'SSH Relay Guard (SRG)\n⚠️ 未配置主机\n\n运行「Add Host Forwarding」添加远程主机'
+                    : 'SSH Relay Guard (SRG)\n⚠️ No hosts configured\n\nRun "Add Host Forwarding" to add a remote host';
             } else {
                 tooltip = 'SSH Relay Guard (SRG)\n❌ Disconnected';
             }
         } else {
-            tooltip = status.remoteProxyReachable
-                ? 'SSH Relay Guard (SRG)\n✅ Proxy OK'
-                : 'SSH Relay Guard (SRG)\n❌ Proxy unreachable';
+            if (status.remoteSetupCompleted === false) {
+                tooltip = this.currentLang === 'zh'
+                    ? 'SSH Relay Guard (SRG)\n⚠️ 隧道未建立\n\n① 在本地安装 SRG 插件\n② 本地运行「Add Host Forwarding」\n③ 重新连接此服务器'
+                    : 'SSH Relay Guard (SRG)\n⚠️ Tunnel not established\n\n① Install SRG on your LOCAL machine\n② Run \"Add Host Forwarding\" locally\n③ Reconnect to this server';
+            } else {
+                tooltip = status.remoteProxyReachable
+                    ? 'SSH Relay Guard (SRG)\n✅ Proxy OK'
+                    : 'SSH Relay Guard (SRG)\n❌ Proxy unreachable';
+            }
         }
 
         this.statusBarItem.text = '$(shield) SRG';
@@ -450,7 +535,7 @@ export class DashboardManager {
 
     private generateTrafficHtml(t: typeof dict.zh, stats: TrafficStats, isLocal: boolean): string {
         return buildTrafficHtml(
-            { t, trafficStats: stats, sessionDuration: this.connectionMonitor.getSessionDuration() },
+            { t, trafficStats: stats, sessionDuration: this.connectionMonitor.getSessionDuration(), status: this.currentStatus },
             isLocal
         );
     }
