@@ -1,0 +1,648 @@
+#!/bin/bash
+# ============================================================================
+# srg — SSH Relay Guard
+# ============================================================================
+# 一次性脚本，替代 SSH Relay Guard 插件的所有关键功能。
+# 完全独立于插件，不依赖任何已有扩展或安装。
+#
+# 设计原则：
+#   - 代理是「按需开启」的，只影响当前 shell，不污染全局环境
+#   - 退出 shell 即失效，不影响其它终端窗口
+#   - LS Wrapper 始终走代理（通过 mgraftcp，独立于环境变量）
+#
+# 用法：
+#   srg setup    <remote-host> [proxy-port]   # 一次性完整配置
+#   srg status   <remote-host>                # 检查状态
+#   srg teardown <remote-host>                # 完全卸载
+#
+# 远程命令 (setup 后在远程可用)：
+#   srg-on       开启代理 (当前 shell)
+#   srg-off      关闭代理 (当前 shell)
+#   srg-shell    开一个带代理的新 shell
+#   srg-proxy    单条命令走代理 (mgraftcp)
+#   srg-status   查看代理状态
+# ============================================================================
+
+set -euo pipefail
+
+# ============================================================================
+# 配置
+# ============================================================================
+DEFAULT_PROXY_PORT=7890
+PROXY_TYPE="http"  # http 或 socks5
+SSH_DIR="$HOME/.ssh"
+SSH_SOCKET_DIR="$SSH_DIR/sockets"
+SSH_CONFIG="$SSH_DIR/config"
+SSH_CONFIG_SRG="$SSH_DIR/config.srg"   # SRG 独立配置文件
+INCLUDE_LINE="Include config.srg"
+SRG_MARKER="# --- SRG (SSH Relay Guard) ---"
+SRG_MARKER_END="# --- SRG END ---"
+
+# 本脚本所在目录（用于定位 remote/ 和 bin/ 下的文件）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REMOTE_SCRIPTS_DIR="$SCRIPT_DIR/remote"
+BINARIES_DIR="$SCRIPT_DIR/bin"
+
+# 颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ============================================================================
+# 工具函数
+# ============================================================================
+info()  { echo -e "${GREEN}✓${NC} $*"; }
+warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
+err()   { echo -e "${RED}✗${NC} $*"; }
+step()  { echo -e "\n${BLUE}━━━${NC} ${BOLD}$*${NC}"; }
+dim()   { echo -e "${DIM}  $*${NC}"; }
+
+confirm() {
+    local msg="$1"
+    echo -en "${YELLOW}?${NC} $msg [Y/n] "
+    read -r reply
+    [[ -z "$reply" || "$reply" =~ ^[Yy] ]]
+}
+
+# ============================================================================
+# 命令：setup
+# ============================================================================
+cmd_setup() {
+    local remote_host="${1:?用法: srg setup <remote-host> [proxy-port]}"
+    local proxy_port="${2:-$DEFAULT_PROXY_PORT}"
+
+    if [ ! -d "$REMOTE_SCRIPTS_DIR" ]; then
+        err "找不到 remote/ 目录: $REMOTE_SCRIPTS_DIR"
+        exit 1
+    fi
+
+    echo -e "${BOLD}${CYAN}"
+    echo "  ╔══════════════════════════════════════╗"
+    echo "  ║   SRG — SSH Relay Guard   ║"
+    echo "  ╚══════════════════════════════════════╝"
+    echo -e "${NC}"
+    echo -e "  远程主机: ${BOLD}$remote_host${NC}"
+    echo -e "  代理端口: ${BOLD}$proxy_port${NC}"
+    echo -e "  代理类型: ${BOLD}$PROXY_TYPE${NC}"
+    echo ""
+
+    step "1/4  配置本地 SSH (RemoteForward + ControlMaster)"
+    setup_local_ssh "$remote_host" "$proxy_port"
+
+    step "2/4  部署远程 SRG 工具集"
+    deploy_remote_tools "$remote_host" "$proxy_port"
+
+    step "3/4  配置远程 Language Server Wrapper"
+    setup_remote_ls_wrapper "$remote_host" "$proxy_port"
+
+    step "4/4  验证"
+    run_remote_verify "$remote_host" "$proxy_port"
+
+    echo ""
+    echo -e "${GREEN}${BOLD}━━━ 设置完成！━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}远程代理使用方式：${NC}"
+    echo ""
+    echo -e "  ${CYAN}●${NC} ${BOLD}srg-on${NC}                   开启代理 (当前 shell)"
+    echo -e "     ${DIM}之后 curl/pip/git/npm 等自动走代理${NC}"
+    echo -e "     ${DIM}关掉终端或输入 srg-off 即恢复${NC}"
+    echo ""
+    echo -e "  ${CYAN}●${NC} ${BOLD}srg-off${NC}                  关闭代理 (当前 shell)"
+    echo ""
+    echo -e "  ${CYAN}●${NC} ${BOLD}srg-shell${NC}                开一个自带代理的新 shell"
+    echo -e "     ${DIM}退出该 shell 代理自动失效，不影响外层${NC}"
+    echo ""
+    echo -e "  ${CYAN}●${NC} ${BOLD}srg-proxy <cmd>${NC}          单条命令走代理 (mgraftcp)"
+    echo -e "     ${DIM}适用于不认环境变量的程序${NC}"
+    echo ""
+    echo -e "  ${CYAN}●${NC} ${BOLD}srg-status${NC}               查看代理状态"
+    echo ""
+    echo -e "  ${YELLOW}注意${NC}: 请 ${BOLD}Reload Window${NC} 让 LS wrapper 生效。"
+    echo -e "  ${YELLOW}注意${NC}: LS wrapper 始终走代理，不受 srg-on/off 影响。"
+
+    # 变更清单
+    echo ""
+    echo -e "${BOLD}━━━ 变更清单 ━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}本地${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/.ssh/config.srg          ${DIM}SRG SSH 配置 (RemoteForward + ControlMaster)${NC}"
+    echo -e "    ${YELLOW}[MODIFIED]${NC} ~/.ssh/config              ${DIM}顶部添加一行: Include config.srg${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/.ssh/sockets/             ${DIM}ControlMaster socket 目录${NC}"
+    echo ""
+    echo -e "  ${BOLD}远程 ($remote_host)${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/srg-on                ${DIM}开启代理 (source 使用)${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/srg-off               ${DIM}关闭代理 (source 使用)${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/srg-shell             ${DIM}带代理的子 shell${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/srg-proxy             ${DIM}mgraftcp 单命令代理${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/srg-status            ${DIM}状态诊断${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/mgraftcp-fakedns      ${DIM}透明代理核心二进制${NC}"
+    echo -e "    ${CYAN}[NEW]${NC}      ~/bin/libdnsredir-*.so      ${DIM}DNS 重定向库${NC}"
+    echo -e "    ${YELLOW}[MODIFIED]${NC} ~/.bashrc                   ${DIM}添加 srg-on/off 函数定义 + ~/bin 加入 PATH${NC}"
+    if ssh "$remote_host" "test -f ~/.zshrc" 2>/dev/null; then
+        echo -e "    ${YELLOW}[MODIFIED]${NC} ~/.zshrc                    ${DIM}同 .bashrc${NC}"
+    fi
+
+    # LS wrapper 变更
+    local ls_wrappers
+    ls_wrappers=$(ssh "$remote_host" "for d in .antigravity-server; do find ~/\$d/bin -name 'language_server_linux_*.bak' 2>/dev/null; done" || true)
+    if [ -n "$ls_wrappers" ]; then
+        echo ""
+        echo -e "  ${BOLD}Language Server Wrapper${NC}"
+        echo "$ls_wrappers" | while IFS= read -r bak; do
+            [ -z "$bak" ] && continue
+            local orig="${bak%.bak}"
+            echo -e "    ${YELLOW}[RENAMED]${NC}  $(basename "$orig") → $(basename "$orig").bak  ${DIM}原始二进制备份${NC}"
+            echo -e "    ${CYAN}[NEW]${NC}      $(basename "$orig")                    ${DIM}代理 wrapper 脚本${NC}"
+        done
+    fi
+
+    echo ""
+    echo -e "  ${DIM}卸载: srg teardown $remote_host (以上所有变更将被还原)${NC}"
+}
+
+# ============================================================================
+# 1. 本地 SSH 配置
+#    SRG 配置写入独立文件 ~/.ssh/config.srg，主配置仅加一行 Include。
+#    支持多主机：每台主机有独立的标记区块，可单独增删。
+# ============================================================================
+setup_local_ssh() {
+    local remote_host="$1"
+    local proxy_port="$2"
+    local host_marker="# --- SRG:${remote_host} ---"
+    local host_marker_end="# --- SRG:${remote_host} END ---"
+
+    mkdir -p "$SSH_SOCKET_DIR"
+
+    # 1a. 如果 config.srg 中已有该主机的区块，先删除（幂等）
+    if [ -f "$SSH_CONFIG_SRG" ] && grep -qF "$host_marker" "$SSH_CONFIG_SRG" 2>/dev/null; then
+        dim "更新已有配置: $remote_host"
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "/$host_marker/,/$host_marker_end/d" "$SSH_CONFIG_SRG"
+        else
+            sed -i "/$host_marker/,/$host_marker_end/d" "$SSH_CONFIG_SRG"
+        fi
+    fi
+
+    # 1b. 如果 config.srg 不存在，创建文件头
+    if [ ! -f "$SSH_CONFIG_SRG" ] || [ ! -s "$SSH_CONFIG_SRG" ]; then
+        echo "# SRG — SSH Relay Guard" > "$SSH_CONFIG_SRG"
+        echo "# 由 srg setup 自动生成，请勿手动修改。删除请运行 srg teardown。" >> "$SSH_CONFIG_SRG"
+        echo "" >> "$SSH_CONFIG_SRG"
+    fi
+
+    # 1c. 追加该主机的配置区块
+    cat >> "$SSH_CONFIG_SRG" << EOF
+$host_marker
+Host $remote_host
+    # 反向隧道：远程 $proxy_port → 本地 $proxy_port
+    RemoteForward $proxy_port 127.0.0.1:$proxy_port
+    ExitOnForwardFailure no
+    # 连接复用：关闭窗口后隧道仍保持，再次连接秒开
+    ControlMaster auto
+    ControlPath $SSH_SOCKET_DIR/%r@%h-%p
+    ControlPersist 4h
+$host_marker_end
+EOF
+    chmod 600 "$SSH_CONFIG_SRG"
+
+    # 1d. 确保主配置中有 Include 行（只加一行，放在文件顶部）
+    touch "$SSH_CONFIG"
+    chmod 600 "$SSH_CONFIG"
+    if ! grep -qF "$INCLUDE_LINE" "$SSH_CONFIG" 2>/dev/null; then
+        local tmp_config
+        tmp_config=$(mktemp)
+        echo "$INCLUDE_LINE" > "$tmp_config"
+        cat "$SSH_CONFIG" >> "$tmp_config"
+        mv "$tmp_config" "$SSH_CONFIG"
+        chmod 600 "$SSH_CONFIG"
+    fi
+
+    info "SSH 配置已写入 $SSH_CONFIG_SRG"
+    dim "主配置仅添加: $INCLUDE_LINE"
+    dim "RemoteForward $proxy_port → 127.0.0.1:$proxy_port"
+    dim "ControlMaster auto, ControlPersist 4h"
+}
+
+# ============================================================================
+# 2. 部署远程工具集
+# ============================================================================
+deploy_remote_tools() {
+    local remote_host="$1"
+    local proxy_port="$2"
+    local proxy_addr="127.0.0.1:$proxy_port"
+
+    # 2a. 准备临时目录，替换占位符
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'" EXIT
+
+    for script in srg-on srg-off srg-shell srg-proxy srg-status; do
+        local src="$REMOTE_SCRIPTS_DIR/$script"
+        local dst="$tmpdir/$script"
+
+        if [ ! -f "$src" ]; then
+            warn "模板文件缺失: $src"
+            continue
+        fi
+
+        cp "$src" "$dst"
+        sed -i.bak "s|__SRG_PORT__|$proxy_port|g" "$dst"
+        sed -i.bak "s|__SRG_TYPE__|$PROXY_TYPE|g" "$dst"
+        sed -i.bak "s|__SRG_ADDR__|$proxy_addr|g" "$dst"
+        rm -f "$dst.bak"
+        chmod +x "$dst"
+    done
+
+    # 2b. 上传工具脚本
+    dim "上传工具脚本到远程 ~/bin/ ..."
+    ssh "$remote_host" "mkdir -p ~/bin"
+    scp -q "$tmpdir"/srg-* "$remote_host:~/bin/"
+    info "5 个工具已部署: srg-on, srg-off, srg-shell, srg-proxy, srg-status"
+
+    # 2c. 安装 mgraftcp-fakedns
+    install_mgraftcp "$remote_host"
+
+    # 2d. 初始化远程 shell 环境 (注入便捷函数 + PATH)
+    dim "初始化远程 shell 环境..."
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-init-shell" "$remote_host:/tmp/srg-init-shell"
+    ssh "$remote_host" "bash /tmp/srg-init-shell '$SRG_MARKER' '$SRG_MARKER_END' && rm -f /tmp/srg-init-shell"
+
+    info "shell 函数已配置"
+}
+
+# ============================================================================
+# 2c. 安装 mgraftcp-fakedns
+#     优先从本地 bin/ 目录 scp 预编译二进制，否则在远程从源码编译
+# ============================================================================
+install_mgraftcp() {
+    local remote_host="$1"
+
+    # 检测远程架构
+    local remote_arch
+    remote_arch=$(ssh "$remote_host" "uname -m")
+    local bin_suffix=""
+    case "$remote_arch" in
+        x86_64|amd64)  bin_suffix="amd64" ;;
+        aarch64|arm64) bin_suffix="arm64" ;;
+        *)
+            warn "不支持的远程架构: $remote_arch"
+            return 1
+            ;;
+    esac
+
+    dim "远程架构: $remote_arch ($bin_suffix)"
+
+    # 检查远程是否已有
+    if ssh "$remote_host" "test -x ~/bin/mgraftcp-fakedns" 2>/dev/null; then
+        info "mgraftcp-fakedns 远程已存在，跳过安装"
+        return 0
+    fi
+
+    # 方式 1: 本地有预编译二进制 → scp 上传
+    local local_binary="$BINARIES_DIR/mgraftcp-fakedns-linux-$bin_suffix"
+    local local_lib="$BINARIES_DIR/libdnsredir-linux-$bin_suffix.so"
+
+    if [ -f "$local_binary" ]; then
+        dim "从本地上传预编译二进制..."
+        scp -q "$local_binary" "$remote_host:~/bin/mgraftcp-fakedns"
+        ssh "$remote_host" "chmod +x ~/bin/mgraftcp-fakedns"
+        info "mgraftcp-fakedns 已上传 ($(basename "$local_binary"))"
+
+        if [ -f "$local_lib" ]; then
+            scp -q "$local_lib" "$remote_host:~/bin/"
+            info "libdnsredir.so 已上传"
+        fi
+        return 0
+    fi
+
+    # 方式 2: 本地无二进制 → 远程编译
+    warn "本地未找到预编译二进制: $local_binary"
+    dim "将在远程从源码编译 (需要 git, make, gcc, go)..."
+
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-compile-mgraftcp" "$remote_host:/tmp/srg-compile-mgraftcp"
+    ssh "$remote_host" "bash /tmp/srg-compile-mgraftcp && rm -f /tmp/srg-compile-mgraftcp"
+
+    info "mgraftcp-fakedns 远程编译完成"
+}
+
+# ============================================================================
+# 3. 远程 Language Server Wrapper
+# ============================================================================
+setup_remote_ls_wrapper() {
+    local remote_host="$1"
+    local proxy_port="$2"
+    local proxy_addr="127.0.0.1:$proxy_port"
+
+    dim "配置 Language Server wrapper..."
+
+    local wrapper_src="$REMOTE_SCRIPTS_DIR/ls-wrapper.sh"
+    if [ ! -f "$wrapper_src" ]; then
+        warn "LS wrapper 模板缺失: $wrapper_src"
+        return
+    fi
+
+    # 替换占位符并上传模板
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local wrapper_tmp="$tmpdir/ls-wrapper.sh"
+    cp "$wrapper_src" "$wrapper_tmp"
+    sed -i.bak "s|__SRG_ADDR__|$proxy_addr|g" "$wrapper_tmp"
+    sed -i.bak "s|__SRG_TYPE__|$PROXY_TYPE|g" "$wrapper_tmp"
+    rm -f "$wrapper_tmp.bak"
+
+    scp -q "$wrapper_tmp" "$remote_host:/tmp/srg-ls-wrapper.sh"
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-deploy-ls-wrapper" "$remote_host:/tmp/srg-deploy-ls-wrapper"
+    rm -rf "$tmpdir"
+
+    ssh "$remote_host" "bash /tmp/srg-deploy-ls-wrapper /tmp/srg-ls-wrapper.sh && rm -f /tmp/srg-deploy-ls-wrapper"
+
+    info "Language Server wrapper 配置完成"
+}
+
+# ============================================================================
+# 4. 验证
+# ============================================================================
+run_remote_verify() {
+    local remote_host="$1"
+    local proxy_port="$2"
+
+    dim "验证远程连通性..."
+
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-verify" "$remote_host:/tmp/srg-verify"
+    ssh "$remote_host" "bash /tmp/srg-verify '$proxy_port' && rm -f /tmp/srg-verify"
+}
+
+# ============================================================================
+# 命令：status
+# ============================================================================
+cmd_status() {
+    local remote_host="${1:?用法: srg status <remote-host>}"
+
+    echo -e "${BOLD}SRG 状态检查${NC} — $remote_host"
+
+    step "本地"
+    if [ -f "$SSH_CONFIG_SRG" ]; then
+        info "SSH 配置文件: $SSH_CONFIG_SRG"
+    else
+        err "SSH 配置文件不存在: $SSH_CONFIG_SRG"
+    fi
+
+    if grep -qF "$INCLUDE_LINE" "$SSH_CONFIG" 2>/dev/null; then
+        info "主配置已 Include config.srg"
+    else
+        err "主配置缺少 Include config.srg"
+    fi
+
+    local socket
+    socket=$(ls "$SSH_SOCKET_DIR"/*"$remote_host"* 2>/dev/null | head -1 || true)
+    if [ -n "$socket" ]; then
+        info "SSH ControlMaster 活跃: $(basename "$socket")"
+    else
+        dim "SSH ControlMaster 无活跃连接"
+    fi
+
+    step "远程"
+    run_remote_verify "$remote_host" "$DEFAULT_PROXY_PORT"
+}
+
+# ============================================================================
+# 命令：teardown
+# ============================================================================
+cmd_teardown() {
+    local remote_host="${1:?用法: srg teardown <remote-host>}"
+
+    echo -e "${BOLD}SRG 卸载${NC} — $remote_host"
+    echo ""
+
+    if ! confirm "确定要移除所有 SRG 配置吗？"; then
+        echo "已取消"
+        exit 0
+    fi
+
+    step "清理本地 SSH 配置"
+    local host_marker="# --- SRG:${remote_host} ---"
+    local host_marker_end="# --- SRG:${remote_host} END ---"
+    local cleaned=false
+
+    # 从 config.srg 中删除该主机的区块
+    if [ -f "$SSH_CONFIG_SRG" ] && grep -qF "$host_marker" "$SSH_CONFIG_SRG" 2>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' "/$host_marker/,/$host_marker_end/d" "$SSH_CONFIG_SRG"
+        else
+            sed -i "/$host_marker/,/$host_marker_end/d" "$SSH_CONFIG_SRG"
+        fi
+        cleaned=true
+    fi
+
+    # 如果 config.srg 中不再有任何主机区块，删除文件和 Include 行
+    if [ -f "$SSH_CONFIG_SRG" ] && ! grep -q "^# --- SRG:" "$SSH_CONFIG_SRG" 2>/dev/null; then
+        rm -f "$SSH_CONFIG_SRG"
+        if grep -qF "$INCLUDE_LINE" "$SSH_CONFIG" 2>/dev/null; then
+            if [[ "$(uname)" == "Darwin" ]]; then
+                sed -i '' "/^${INCLUDE_LINE}$/d" "$SSH_CONFIG"
+            else
+                sed -i "/^${INCLUDE_LINE}$/d" "$SSH_CONFIG"
+            fi
+        fi
+        info "SSH 配置已清理 ($SSH_CONFIG_SRG 已删除)"
+    elif $cleaned; then
+        info "SSH 配置已清理 (已移除 $remote_host 的区块)"
+    else
+        dim "无 SRG 配置需要清理"
+    fi
+
+    step "清理远程配置"
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-teardown-remote" "$remote_host:/tmp/srg-teardown-remote"
+    ssh "$remote_host" "bash /tmp/srg-teardown-remote '$SRG_MARKER' '$SRG_MARKER_END' && rm -f /tmp/srg-teardown-remote"
+
+    info "远程配置已清理"
+    echo ""
+    echo -e "${GREEN}${BOLD}卸载完成${NC}"
+    echo -e "  请 ${BOLD}Reload Window${NC} 让 LS 恢复生效"
+}
+
+# ============================================================================
+# 命令：doctor — 问题排查
+# ============================================================================
+cmd_doctor() {
+    local remote_host="${1:?用法: srg doctor <remote-host>}"
+
+    echo -e "${BOLD}${CYAN}SRG 问题排查${NC} — $remote_host"
+
+    # --- 本地检查 ---
+    step "本地环境"
+    local local_ok=true
+
+    # config.srg
+    if [ -f "$SSH_CONFIG_SRG" ]; then
+        local host_marker="# --- SRG:${remote_host} ---"
+        if grep -qF "$host_marker" "$SSH_CONFIG_SRG" 2>/dev/null; then
+            info "config.srg 中包含 $remote_host 的配置"
+        else
+            err "config.srg 存在但不包含 $remote_host"
+            dim "→ 运行: srg setup $remote_host"
+            local_ok=false
+        fi
+    else
+        err "config.srg 不存在"
+        dim "→ 运行: srg setup $remote_host"
+        local_ok=false
+    fi
+
+    # Include
+    if grep -qF "$INCLUDE_LINE" "$SSH_CONFIG" 2>/dev/null; then
+        info "~/.ssh/config 已 Include config.srg"
+    else
+        err "~/.ssh/config 缺少 Include config.srg"
+        dim "→ 运行: srg setup $remote_host"
+        local_ok=false
+    fi
+
+    # 本地代理端口
+    local proxy_port
+    proxy_port=$(grep -A2 "^# --- SRG:${remote_host} ---" "$SSH_CONFIG_SRG" 2>/dev/null \
+        | grep "RemoteForward" | awk '{print $2}' | head -1)
+    proxy_port="${proxy_port:-$DEFAULT_PROXY_PORT}"
+
+    if lsof -i tcp:"$proxy_port" -sTCP:LISTEN &>/dev/null 2>&1; then
+        info "本地代理端口 :$proxy_port 正在监听"
+    else
+        err "本地代理端口 :$proxy_port 未监听"
+        dim "→ 请确保本地代理 (Clash/V2Ray/等) 已启动并监听 $proxy_port"
+        local_ok=false
+    fi
+
+    # ControlMaster
+    local socket
+    socket=$(ls "$SSH_SOCKET_DIR"/*"$remote_host"* 2>/dev/null | head -1 || true)
+    if [ -n "$socket" ]; then
+        info "ControlMaster socket 活跃: $(basename "$socket")"
+    else
+        dim "ControlMaster 无活跃连接 (首次 SSH 后会创建)"
+    fi
+
+    # --- SSH 连接测试 ---
+    step "SSH 连接"
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "$remote_host" "echo ok" &>/dev/null; then
+        info "SSH 连接正常"
+    else
+        err "SSH 无法连接 $remote_host"
+        dim "→ 检查网络、SSH 密钥、主机名是否正确"
+        dim "→ 运行: ssh -v $remote_host 查看详细错误"
+        echo ""
+        err "无法连接远程，跳过远程诊断"
+        return 1
+    fi
+
+    # --- 远程检查 ---
+    step "远程环境诊断"
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-diagnose" "$remote_host:/tmp/srg-diagnose"
+    ssh "$remote_host" "bash /tmp/srg-diagnose '$proxy_port' && rm -f /tmp/srg-diagnose"
+}
+
+# 命令：list — 列出已配置的主机
+# ============================================================================
+cmd_list() {
+    echo -e "${BOLD}SRG 已配置主机${NC}"
+    echo ""
+
+    if [ ! -f "$SSH_CONFIG_SRG" ]; then
+        dim "无已配置的主机"
+        dim "运行 srg setup <host> 添加"
+        return
+    fi
+
+    local hosts
+    hosts=$(grep -o '^# --- SRG:\(.*\) ---$' "$SSH_CONFIG_SRG" 2>/dev/null \
+        | grep -v 'END' \
+        | sed 's/^# --- SRG:\(.*\) ---$/\1/' || true)
+
+    if [ -z "$hosts" ]; then
+        dim "无已配置的主机"
+        return
+    fi
+
+    local count=0
+    while IFS= read -r host; do
+        [ -z "$host" ] && continue
+        count=$((count + 1))
+
+        # 从 config.srg 中提取端口
+        local port
+        port=$(grep -A2 "^# --- SRG:${host} ---" "$SSH_CONFIG_SRG" \
+            | grep "RemoteForward" | awk '{print $2}' | head -1)
+        port="${port:-?}"
+
+        # 检查 ControlMaster socket 是否活跃
+        local socket
+        socket=$(ls "$SSH_SOCKET_DIR"/*"$host"* 2>/dev/null | head -1 || true)
+
+        if [ -n "$socket" ]; then
+            echo -e "  ${GREEN}●${NC} ${BOLD}$host${NC}  端口:$port  ${GREEN}已连接${NC}"
+        else
+            echo -e "  ${DIM}○${NC} ${BOLD}$host${NC}  端口:$port  ${DIM}未连接${NC}"
+        fi
+    done <<< "$hosts"
+
+    echo ""
+    dim "共 $count 台主机"
+}
+
+# ============================================================================
+# 主入口
+# ============================================================================
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        setup)     cmd_setup "$@" ;;
+        status)    cmd_status "$@" ;;
+        doctor|diagnose|diag) cmd_doctor "$@" ;;
+        list|ls)   cmd_list ;;
+        tui|ui)    exec bash "$SCRIPT_DIR/srg-tui" ;;
+        web)
+            local web_port="${1:-9876}"
+            # 自动打开浏览器
+            ( sleep 1 && open "http://127.0.0.1:$web_port" 2>/dev/null \
+                || xdg-open "http://127.0.0.1:$web_port" 2>/dev/null ) &
+            exec python3 "$SCRIPT_DIR/web/server.py" "$web_port"
+            ;;
+        teardown|remove|uninstall) cmd_teardown "$@" ;;
+        help|--help|-h)
+            echo "用法: srg <command> [options]"
+            echo ""
+            echo "Setup & Management (本地执行):"
+            echo "  setup    <host> [port]   一次性配置 (默认端口 7890，可重复执行)"
+            echo "  list                     列出已配置的主机"
+            echo "  status   <host>          检查指定主机状态"
+            echo "  doctor   <host>          问题排查 (本地+远程全面诊断)"
+            echo "  teardown <host>          卸载指定主机"
+            echo "  tui                      交互式管理界面 (终端)"
+            echo "  web      [port]          Web 管理面板 (默认端口 9876)"
+            echo ""
+            echo "Remote Commands (setup 后在远程可用):"
+            echo "  srg-on                   开启代理 (当前 shell)"
+            echo "  srg-off                  关闭代理 (当前 shell)"
+            echo "  srg-shell                开一个带代理的新 shell"
+            echo "  srg-proxy <cmd>          单条命令强制走代理"
+            echo "  srg-status               查看代理状态"
+            echo ""
+            echo "示例:"
+            echo "  srg setup my-server"
+            echo "  srg setup my-server 1080"
+            echo "  srg list"
+            echo "  srg status my-server"
+            echo "  srg doctor my-server"
+            echo "  srg teardown my-server"
+            ;;
+        *) err "未知命令: $cmd"; echo "运行 'srg help' 查看帮助"; exit 1 ;;
+    esac
+}
+
+main "$@"

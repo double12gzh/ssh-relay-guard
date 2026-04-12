@@ -1,0 +1,41 @@
+#!/bin/bash
+# ============================================================================
+# srg-shell — 开启一个自带代理的子 shell
+# ============================================================================
+# 用法: srg-shell
+#
+# 进入后所有命令自动走代理，输入 exit 退出后代理自动消失。
+# 不影响外层 shell 和其它终端窗口。
+# ============================================================================
+
+_SRG_PORT="__SRG_PORT__"
+_SRG_ADDR="127.0.0.1:$_SRG_PORT"
+
+# 检查隧道是否可达
+if ! timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$_SRG_PORT" 2>/dev/null; then
+    echo "⚠ 代理端口 $_SRG_PORT 不可达，SSH 隧道可能未建立"
+    echo "  请确保从本地通过 SSH 连接到此服务器（需配置 RemoteForward）"
+    echo ""
+fi
+
+# 设置代理环境变量
+export HTTP_PROXY="http://$_SRG_ADDR"
+export HTTPS_PROXY="http://$_SRG_ADDR"
+export http_proxy="http://$_SRG_ADDR"
+export https_proxy="http://$_SRG_ADDR"
+export ALL_PROXY="socks5://$_SRG_ADDR"
+export all_proxy="socks5://$_SRG_ADDR"
+export NO_PROXY="localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+export no_proxy="localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+echo "✓ 已进入代理 shell (输入 exit 退出，代理自动失效)"
+echo "  HTTP_PROXY=$HTTP_PROXY"
+echo ""
+
+# 启动带标识提示符的子 shell
+SRG_PS1="(srg) " exec bash --rcfile <(
+    # 加载用户原有配置
+    [ -f "$HOME/.bashrc" ] && cat "$HOME/.bashrc"
+    # 覆盖 PS1 加上 (srg) 前缀
+    echo 'export PS1="(srg) $PS1"'
+)

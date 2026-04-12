@@ -1,0 +1,36 @@
+#!/bin/bash
+# ============================================================================
+# srg-proxy — 通过 mgraftcp 强制代理单条命令
+# ============================================================================
+# 用法: srg-proxy <command> [args...]
+#
+# 适用于不识别 HTTP_PROXY 环境变量的程序（如某些编译型二进制）。
+# 通过 LD_PRELOAD + FakeDNS 实现进程级透明代理。
+# ============================================================================
+
+_SRG_PORT="__SRG_PORT__"
+_SRG_TYPE="__SRG_TYPE__"
+_SRG_ADDR="127.0.0.1:$_SRG_PORT"
+
+MGRAFTCP="$HOME/bin/mgraftcp-fakedns"
+
+if [ ! -x "$MGRAFTCP" ]; then
+    echo "✗ mgraftcp-fakedns 未找到: $MGRAFTCP" >&2
+    echo "  运行 srg setup 安装，或手动编译 graftcp" >&2
+    exit 1
+fi
+
+if [ $# -eq 0 ]; then
+    echo "用法: srg-proxy <command> [args...]"
+    echo "示例: srg-proxy curl https://www.google.com"
+    exit 1
+fi
+
+# Go 程序需要 cgo DNS 解析器 (LD_PRELOAD 必需)
+export GODEBUG="${GODEBUG:+$GODEBUG,}netdns=cgo"
+
+if [ "$_SRG_TYPE" = "socks5" ]; then
+    exec "$MGRAFTCP" --socks5 "$_SRG_ADDR" "$@"
+else
+    exec "$MGRAFTCP" --http_proxy "$_SRG_ADDR" "$@"
+fi

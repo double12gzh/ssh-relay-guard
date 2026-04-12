@@ -1,0 +1,93 @@
+#!/bin/bash
+# ============================================================================
+# srg-status — 查看当前代理状态
+# ============================================================================
+
+_SRG_PORT="__SRG_PORT__"
+_SRG_ADDR="127.0.0.1:$_SRG_PORT"
+
+# Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
+IDE_SERVER_DIRS=(".antigravity-server")
+
+echo "SRG 代理状态"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# 1. 当前 shell 代理
+if [ -n "${HTTP_PROXY:-}" ]; then
+    echo -e "  \033[0;32m✓\033[0m 当前 shell 代理: $HTTP_PROXY"
+else
+    echo -e "  \033[2m○\033[0m 当前 shell 代理: 未开启 (用 srg-on 或 srg-shell 开启)"
+fi
+
+# 2. SSH 隧道
+if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$_SRG_PORT" 2>/dev/null; then
+    echo -e "  \033[0;32m✓\033[0m SSH 隧道 :$_SRG_PORT: 可达"
+else
+    echo -e "  \033[0;31m✗\033[0m SSH 隧道 :$_SRG_PORT: 不可达"
+fi
+
+# 3. mgraftcp
+if [ -x "$HOME/bin/mgraftcp-fakedns" ]; then
+    echo -e "  \033[0;32m✓\033[0m mgraftcp-fakedns: 已安装"
+else
+    echo -e "  \033[0;31m✗\033[0m mgraftcp-fakedns: 未安装"
+fi
+
+# 4. LS wrapper
+_find_args=()
+for _d in "${IDE_SERVER_DIRS[@]}"; do
+    _find_args+=("$HOME/$_d/bin")
+done
+LS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$" | head -1 || true)
+if [ -n "$LS" ] && head -1 "$LS" 2>/dev/null | grep -q "^#!/bin/bash"; then
+    echo -e "  \033[0;32m✓\033[0m LS Wrapper: 已配置 (始终走代理)"
+elif [ -z "$LS" ]; then
+    echo -e "  \033[2m○\033[0m LS Wrapper: LS 未安装"
+else
+    echo -e "  \033[0;31m✗\033[0m LS Wrapper: 未配置"
+fi
+
+# 5. Google 连通性 (仅在代理或隧道可达时测试)
+if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$_SRG_PORT" 2>/dev/null; then
+    CODE=$(curl -x http://$_SRG_ADDR -s -o /dev/null -w "%{http_code}" --connect-timeout 5 https://www.google.com 2>/dev/null || echo "000")
+    if [[ "$CODE" =~ ^(200|301|302)$ ]]; then
+        echo -e "  \033[0;32m✓\033[0m Google 连通性: HTTP $CODE"
+    else
+        echo -e "  \033[0;31m✗\033[0m Google 连通性: HTTP $CODE"
+    fi
+fi
+
+# 6. DNS pollution check
+_TEST_DOMAIN="daily-cloudcode-pa.googleapis.com"
+_SYS_IP=$(dig +short "$_TEST_DOMAIN" 2>/dev/null | head -1 || true)
+if [ -n "$_SYS_IP" ]; then
+    _TRUSTED_IP=$(dig +short "$_TEST_DOMAIN" @8.8.8.8 2>/dev/null | head -1 || true)
+    if [ -n "$_TRUSTED_IP" ]; then
+        if [ "$_SYS_IP" = "$_TRUSTED_IP" ]; then
+            echo -e "  \033[0;32m✓\033[0m DNS: clean ($_TEST_DOMAIN → $_SYS_IP)"
+        else
+            _SYS_OK=$(echo "$_SYS_IP" | grep -cE '^(142\.250\.|172\.217\.|216\.58\.|74\.125\.|173\.194\.|108\.177\.)' || true)
+            _TRU_OK=$(echo "$_TRUSTED_IP" | grep -cE '^(142\.250\.|172\.217\.|216\.58\.|74\.125\.|173\.194\.|108\.177\.)' || true)
+            if [ "$_SYS_OK" -gt 0 ] && [ "$_TRU_OK" -gt 0 ]; then
+                echo -e "  \033[0;32m✓\033[0m DNS: OK ($_SYS_IP, CDN diff from $_TRUSTED_IP)"
+            else
+                echo -e "  \033[0;31m✗\033[0m DNS: POLLUTED ($_TEST_DOMAIN → $_SYS_IP, should be $_TRUSTED_IP)"
+                echo -e "    \033[2m修复方式:\033[0m"
+                echo -e "    \033[2m  LS 自动补全: 已由 mgraftcp-fakedns wrapper 绕过 (无需操作)\033[0m"
+                echo -e "    \033[2m  终端命令:    srg-on → curl/pip/npm 自动走代理DNS\033[0m"
+                echo -e "    \033[2m  顽固程序:    srg-proxy <cmd> → 透明代理+FakeDNS\033[0m"
+            fi
+        fi
+    else
+        _SYS_OK=$(echo "$_SYS_IP" | grep -cE '^(142\.250\.|172\.217\.|216\.58\.|74\.125\.|173\.194\.|108\.177\.)' || true)
+        if [ "$_SYS_OK" -gt 0 ]; then
+            echo -e "  \033[0;32m✓\033[0m DNS: likely clean ($_SYS_IP matches Google range)"
+        else
+            echo -e "  \033[0;33m⚠\033[0m DNS: suspicious ($_SYS_IP not a known Google IP)"
+        fi
+    fi
+else
+    echo -e "  \033[2m○\033[0m DNS: dig not available (install dnsutils to check)"
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

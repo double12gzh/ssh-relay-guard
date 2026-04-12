@@ -1,0 +1,185 @@
+name: "🐛 Bug Report"
+description: "Report a bug in SSH Relay Guard"
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提交 Bug 报告！请尽可能完整地填写以下信息，以便我们快速定位问题。
+
+        **提交前，请先运行 Health Check**：在 VS Code 中执行命令 `SSH Relay Guard: Run Health Check`，并将结果粘贴到下方对应区域。
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: 问题类型
+      description: 请选择最接近的问题类型
+      options:
+        - "隧道/端口转发 (Tunnel / Port Forwarding)"
+        - "代理连接 (Proxy Connectivity)"
+        - "DNS 污染 (DNS Pollution)"
+        - "远程环境部署 (Remote Setup / Rollback)"
+        - "Language Server 代理 (LS Wrapper / mgraftcp)"
+        - "Dashboard / UI 面板"
+        - "配置问题 (Configuration)"
+        - "其他 (Other)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 问题出现在哪个环境？
+      options:
+        - "远程服务器 (Remote SSH)"
+        - "本地 (Local)"
+        - "两者都有 (Both)"
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: 扩展版本
+      description: "SSH Relay Guard 扩展版本号（在扩展面板或 Dashboard 中可以看到）"
+      placeholder: "e.g. 1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: vscode-version
+    attributes:
+      label: IDE 版本
+      description: "VS Code / Cursor / Antigravity 版本号（Help → About）"
+      placeholder: "e.g. VS Code 1.100.0 / Cursor 0.50.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os-info
+    attributes:
+      label: 操作系统
+      description: "本地和远程服务器的操作系统及架构"
+      placeholder: "e.g. Local: macOS 15.4 (arm64), Remote: Ubuntu 22.04 (x86_64)"
+    validations:
+      required: true
+
+  - type: input
+    id: proxy-software
+    attributes:
+      label: 代理软件
+      description: "使用的本地代理软件及版本"
+      placeholder: "e.g. Clash Verge 2.2.3 / V2Ray 5.x / 其他"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰地描述你遇到的问题
+      placeholder: "描述你遇到了什么问题，以及你期望的行为是什么..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供能够复现问题的详细步骤
+      placeholder: |
+        1. 打开 VS Code，连接到远程服务器 xxx
+        2. 执行命令 "SSH Relay Guard: Enable Port Forwarding"
+        3. 打开终端，执行 `curl -x http://127.0.0.1:7890 https://www.google.com`
+        4. 出现错误...
+    validations:
+      required: true
+
+  - type: textarea
+    id: health-check
+    attributes:
+      label: Health Check 报告
+      description: |
+        请运行 `SSH Relay Guard: Run Health Check`，然后点击 **Copy Report** 按钮，将报告粘贴到这里。
+        这是定位问题最关键的信息。
+      placeholder: |
+        === SSH Relay Guard — Health Report ===
+        Timestamp: ...
+        Overall Status: ...
+        Environment: ...
+
+        --- Checks ---
+        [✓] Local Proxy Service: ...
+        [✓] SSH Configuration: ...
+        ...
+        === End of Report ===
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: srg-config
+    attributes:
+      label: SRG 配置
+      description: |
+        请提供你的 SRG 配置（在 VS Code Settings 中搜索 `ssh-relay-guard`）。
+        **注意：请不要包含敏感信息（如 IP 地址、主机名）。**
+      placeholder: |
+        enableLocalForwarding: true
+        localProxyPort: 7890
+        remoteProxyHost: 127.0.0.1
+        remoteProxyPort: 7890
+        proxyType: http
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: ssh-config
+    attributes:
+      label: SSH 配置（脱敏）
+      description: |
+        如果是隧道/端口转发相关问题，请提供相关 SSH 配置。
+        **请将主机名/IP 替换为占位符（如 `my-server`）。**
+      placeholder: |
+        # ~/.ssh/config.srg 中相关的 Host 块
+        Host my-server
+            HostName xxx.xxx.xxx.xxx
+            RemoteForward 7890 127.0.0.1:7890
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志输出
+      description: |
+        请提供 SRG 输出日志。获取方法：
+        1. 执行命令 `SSH Relay Guard: Show Output`
+        2. 复制 Output Panel 中的相关日志
+      placeholder: "粘贴日志内容..."
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 补充信息
+      description: 其他有助于定位问题的信息（截图、终端输出、网络拓扑说明等）
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前检查
+      options:
+        - label: "我已运行 Health Check 并附上了报告（如果可以）"
+        - label: "我已搜索过 [现有 Issues](https://github.com/double12gzh/ssh-relay-guard/issues)，没有找到类似的问题"
+          required: true
+        - label: "我已脱敏所有敏感信息（主机名、IP 地址等）"
+          required: true

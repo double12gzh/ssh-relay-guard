@@ -1,0 +1,64 @@
+#!/bin/bash
+# ============================================================================
+# srg-compile-mgraftcp — 在远程从源码编译 mgraftcp-fakedns
+# ============================================================================
+# 由 srg setup 在远程无预编译二进制时自动调用。
+# 依赖: git, make, gcc, go (Go 不存在时会自动安装)
+#
+# 编译产物:
+#   ~/bin/mgraftcp-fakedns      — 透明代理核心
+#   ~/bin/libdnsredir.so        — DNS 重定向库
+# ============================================================================
+
+set -euo pipefail
+
+# 检查基础编译依赖
+for cmd in git make gcc; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "[ERROR] 缺少编译依赖: $cmd"
+        echo "  请先安装: sudo apt-get install -y git make gcc"
+        exit 1
+    fi
+done
+
+# 检查/安装 Go
+if ! command -v go &>/dev/null; then
+    echo "[WARN] Go 未安装，尝试自动安装..."
+    GO_VERSION="1.23.4"
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64|amd64)  GO_ARCH="amd64" ;;
+        aarch64|arm64) GO_ARCH="arm64" ;;
+        *) echo "[ERROR] 不支持的架构: $ARCH"; exit 1 ;;
+    esac
+    GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
+    echo "[INFO] 下载 Go $GO_VERSION..."
+    wget -q "https://go.dev/dl/${GO_TAR}" -O "/tmp/${GO_TAR}"
+    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf "/tmp/${GO_TAR}"
+    rm "/tmp/${GO_TAR}"
+    export PATH="/usr/local/go/bin:$PATH"
+    echo "[INFO] Go 已安装: $(go version)"
+fi
+
+export PATH="/usr/local/go/bin:$PATH"
+
+# 克隆并编译
+GRAFTCP_DIR="/tmp/graftcp-build-$$"
+echo "[INFO] 克隆 graftcp 源码..."
+rm -rf "$GRAFTCP_DIR"
+git clone --depth 1 https://github.com/hmgle/graftcp.git "$GRAFTCP_DIR"
+
+cd "$GRAFTCP_DIR"
+echo "[INFO] 编译中..."
+make
+
+# 安装到 ~/bin
+mkdir -p "$HOME/bin"
+cp local/mgraftcp "$HOME/bin/mgraftcp-fakedns"
+chmod +x "$HOME/bin/mgraftcp-fakedns"
+
+[ -f local/dnsredir/libdnsredir.so ] && cp local/dnsredir/libdnsredir.so "$HOME/bin/"
+
+# 清理
+rm -rf "$GRAFTCP_DIR"
+echo "[INFO] mgraftcp-fakedns 编译安装完成"

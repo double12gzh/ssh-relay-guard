@@ -1,0 +1,25 @@
+#!/bin/bash
+# ============================================================================
+# srg-on — 在当前 shell 开启代理
+# ============================================================================
+# 用法: source srg-on  或  . srg-on  或  srg-on (如果已注入 bashrc 函数)
+#
+# 仅影响当前 shell，退出后自动失效，不影响其它终端窗口。
+# Git 也通过环境变量走代理，无需 git config --global。
+# ============================================================================
+
+_SRG_PORT="__SRG_PORT__"
+_SRG_ADDR="127.0.0.1:$_SRG_PORT"
+
+export HTTP_PROXY="http://$_SRG_ADDR"
+export HTTPS_PROXY="http://$_SRG_ADDR"
+export http_proxy="http://$_SRG_ADDR"
+export https_proxy="http://$_SRG_ADDR"
+export ALL_PROXY="socks5://$_SRG_ADDR"
+export all_proxy="socks5://$_SRG_ADDR"
+export NO_PROXY="localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+export no_proxy="localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+echo "✓ 代理已开启 (当前 shell)"
+echo "  HTTP_PROXY=$HTTP_PROXY"
+echo "  用 srg-off 关闭 | 退出 shell 自动失效"

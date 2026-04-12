@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 📖 提交 Issue 前请先阅读
+    url: https://github.com/double12gzh/ssh-relay-guard/blob/main/README.md
+    about: 请先阅读文档，确认问题是否已有解决方案
+  - name: 💬 Discussions
+    url: https://github.com/double12gzh/ssh-relay-guard/discussions
+    about: 如果不确定是 Bug 还是使用问题，可以先在 Discussions 中讨论

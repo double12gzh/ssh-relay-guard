@@ -1,0 +1,12 @@
+#!/bin/bash
+# ============================================================================
+# srg-off — 在当前 shell 关闭代理
+# ============================================================================
+# 用法: source srg-off  或  . srg-off  或  srg-off (如果已注入 bashrc 函数)
+# ============================================================================
+
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+unset ALL_PROXY all_proxy
+unset NO_PROXY no_proxy
+
+echo "✓ 代理已关闭 (当前 shell)"

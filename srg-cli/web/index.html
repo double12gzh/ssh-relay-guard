@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRG — SSH Relay Guard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* ================================================================
+           Design Tokens
+           ================================================================ */
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --bg-card-hover: rgba(30, 41, 59, 0.8);
+            --bg-glass: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #6366f1;
+            --accent-light: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --green: #22c55e;
+            --green-glow: rgba(34, 197, 94, 0.2);
+            --red: #ef4444;
+            --red-glow: rgba(239, 68, 68, 0.2);
+            --yellow: #eab308;
+            --yellow-glow: rgba(234, 179, 8, 0.15);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --radius-xs: 6px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ================================================================
+           Reset & Base
+           ================================================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+                        radial-gradient(circle at 50% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
+            animation: bgShift 20s ease-in-out infinite;
+            z-index: 0;
+        }
+
+        @keyframes bgShift {
+            0%, 100% { transform: translate(0, 0); }
+            33% { transform: translate(-2%, 1%); }
+            66% { transform: translate(1%, -2%); }
+        }
+
+        /* ================================================================
+           Layout
+           ================================================================ */
+        .app {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* ================================================================
+           Header
+           ================================================================ */
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .header__logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 12px;
+        }
+
+        .header__icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .header__title {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header__subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 400;
+        }
+
+        /* ================================================================
+           Stats Bar
+           ================================================================ */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 20px;
+            text-align: center;
+            transition: var(--transition);
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .stat-card__value {
+            font-size: 32px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 4px;
+        }
+
+        .stat-card__label {
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-card--total .stat-card__value { color: var(--accent-light); }
+        .stat-card--connected .stat-card__value { color: var(--green); }
+        .stat-card--offline .stat-card__value { color: var(--text-muted); }
+
+        /* ================================================================
+           Section Header
+           ================================================================ */
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .section-header__title {
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-header__title::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(to bottom, var(--accent), var(--accent-light));
+            border-radius: 2px;
+        }
+
+        /* ================================================================
+           Buttons
+           ================================================================ */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: var(--radius-xs);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: var(--transition);
+            text-decoration: none;
+        }
+
+        .btn--primary {
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            color: white;
+            box-shadow: 0 4px 16px var(--accent-glow);
+        }
+
+        .btn--primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 24px var(--accent-glow);
+        }
+
+        .btn--ghost {
+            background: var(--bg-glass);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .btn--ghost:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+            border-color: var(--border-hover);
+        }
+
+        .btn--danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--red);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .btn--danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        .btn--sm { padding: 6px 12px; font-size: 12px; }
+
+        /* ================================================================
+           Host Cards
+           ================================================================ */
+        .hosts {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 40px;
+        }
+
+        .host-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            align-items: center;
+            gap: 20px;
+            transition: var(--transition);
+            cursor: default;
+        }
+
+        .host-card:hover {
+            border-color: var(--border-hover);
+            background: var(--bg-card-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+
+        .host-card__status {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            position: relative;
+        }
+
+        .host-card__status--connected {
+            background: var(--green);
+            box-shadow: 0 0 12px var(--green-glow);
+        }
+
+        .host-card__status--connected::after {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            border: 2px solid var(--green);
+            opacity: 0.3;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .host-card__status--offline {
+            background: var(--text-muted);
+            opacity: 0.5;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .host-card__info { min-width: 0; }
+
+        .host-card__name {
+            font-size: 16px;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .host-card__tag {
+            font-size: 10px;
+            font-weight: 500;
+            padding: 2px 8px;
+            border-radius: 99px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .host-card__tag--connected {
+            background: var(--green-glow);
+            color: var(--green);
+        }
+
+        .host-card__tag--offline {
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-muted);
+        }
+
+        .host-card__meta {
+            display: flex;
+            gap: 20px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .host-card__meta span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .host-card__meta code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .host-card__actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* ================================================================
+           Empty State
+           ================================================================ */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: var(--bg-glass);
+            border: 1px dashed var(--border);
+            border-radius: var(--radius);
+        }
+
+        .empty-state__icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state__title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .empty-state__desc {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        /* ================================================================
+           Modal
+           ================================================================ */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transition: var(--transition);
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 32px;
+            width: 90%;
+            max-width: 480px;
+            transform: scale(0.95) translateY(10px);
+            transition: var(--transition);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1) translateY(0);
+        }
+
+        .modal__title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            outline: none;
+            transition: var(--transition);
+        }
+
+        .form-group input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .form-group input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .form-group .hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        .modal__actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 28px;
+        }
+
+        /* ================================================================
+           Log Panel
+           ================================================================ */
+        .log-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 40px;
+        }
+
+        .log-panel__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .log-panel__title {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-panel__body {
+            padding: 16px 20px;
+            max-height: 360px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-panel__body::-webkit-scrollbar { width: 6px; }
+        .log-panel__body::-webkit-scrollbar-track { background: transparent; }
+        .log-panel__body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        .log-line--pass { color: var(--green); }
+        .log-line--fail { color: var(--red); }
+        .log-line--warn { color: var(--yellow); }
+        .log-line--info { color: var(--accent-light); }
+        .log-line--dim  { color: var(--text-muted); }
+
+        .log-panel.hidden { display: none; }
+
+        /* ================================================================
+           Footer
+           ================================================================ */
+        .footer {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .footer a {
+            color: var(--accent-light);
+            text-decoration: none;
+        }
+
+        .footer a:hover { text-decoration: underline; }
+
+        /* ================================================================
+           Spinner
+           ================================================================ */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent-light);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ================================================================
+           Toast
+           ================================================================ */
+        .toast-container {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            padding: 14px 20px;
+            font-size: 13px;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.3s ease-out;
+            min-width: 280px;
+        }
+
+        .toast--success { border-left: 3px solid var(--green); }
+        .toast--error   { border-left: 3px solid var(--red); }
+        .toast--info    { border-left: 3px solid var(--accent); }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to   { transform: translateX(0); opacity: 1; }
+        }
+
+        /* ================================================================
+           Command Reference
+           ================================================================ */
+        .cmd-ref {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            margin-bottom: 40px;
+        }
+
+        .cmd-ref__grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        .cmd-group__title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .cmd-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: var(--radius-xs);
+            margin-bottom: 4px;
+            transition: var(--transition);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .cmd-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .cmd-item__code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent-light);
+            white-space: nowrap;
+            min-width: 160px;
+        }
+
+        .cmd-item__desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .cmd-item__copy {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 11px;
+            color: var(--text-muted);
+            opacity: 0;
+            transition: var(--transition);
+        }
+
+        .cmd-item:hover .cmd-item__copy {
+            opacity: 1;
+        }
+
+        .cmd-item__badge {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 600;
+            padding: 1px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 6px;
+        }
+
+        .cmd-item__badge--always {
+            background: var(--green-glow);
+            color: var(--green);
+        }
+
+        .cmd-item__badge--session {
+            background: var(--accent-glow);
+            color: var(--accent-light);
+        }
+
+        .cmd-item__badge--process {
+            background: var(--yellow-glow);
+            color: var(--yellow);
+        }
+
+        /* ================================================================
+           Host Picker (Add Modal)
+           ================================================================ */
+        .host-picker {
+            margin-bottom: 20px;
+        }
+
+        .host-picker__label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .host-picker__grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 2px;
+        }
+
+        .host-picker__grid::-webkit-scrollbar { width: 4px; }
+        .host-picker__grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .host-chip {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+            padding: 10px 14px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            cursor: pointer;
+            transition: var(--transition);
+            min-width: 140px;
+        }
+
+        .host-chip:hover {
+            border-color: var(--accent);
+            background: rgba(99, 102, 241, 0.08);
+            transform: translateY(-1px);
+        }
+
+        .host-chip.selected {
+            border-color: var(--accent);
+            background: rgba(99, 102, 241, 0.15);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+
+        .host-chip.configured {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .host-chip__name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .host-chip__meta {
+            font-size: 10px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .host-chip__badge {
+            font-size: 9px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: var(--green-glow);
+            color: var(--green);
+            font-weight: 600;
+        }
+
+        .host-picker__empty {
+            color: var(--text-muted);
+            font-size: 12px;
+            padding: 16px;
+            text-align: center;
+            background: var(--bg-glass);
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-xs);
+        }
+
+        .host-picker__divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 16px 0;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .host-picker__divider::before,
+        .host-picker__divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* ================================================================
+           Responsive
+           ================================================================ */
+        @media (max-width: 640px) {
+            .host-card { grid-template-columns: auto 1fr; }
+            .host-card__actions { grid-column: 1 / -1; justify-content: flex-end; }
+            .stats { grid-template-columns: repeat(3, 1fr); }
+            .cmd-ref__grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header__logo">
+                <div class="header__icon">⚡</div>
+                <h1 class="header__title">SRG</h1>
+            </div>
+            <p class="header__subtitle">SSH Relay Guard — 管理面板</p>
+        </header>
+
+        <!-- Offline Banner -->
+        <div id="offline-banner" style="
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.25);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: none;
+            align-items: center;
+            gap: 14px;
+            font-size: 13px;
+        ">
+            <span style="font-size: 20px;">⚠️</span>
+            <div>
+                <div style="font-weight: 600; color: var(--yellow); margin-bottom: 4px;">预览模式 — 后端未连接</div>
+                <div style="color: var(--text-muted);">
+                    当前显示演示数据。启动后端以使用完整功能:
+                    <code style="font-family: 'JetBrains Mono', monospace; color: var(--accent-light); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 4px;">srg web</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats">
+            <div class="stat-card stat-card--total">
+                <div class="stat-card__value" id="stat-total">0</div>
+                <div class="stat-card__label">已配置主机</div>
+            </div>
+            <div class="stat-card stat-card--connected">
+                <div class="stat-card__value" id="stat-connected">0</div>
+                <div class="stat-card__label">已连接</div>
+            </div>
+            <div class="stat-card stat-card--offline">
+                <div class="stat-card__value" id="stat-offline">0</div>
+                <div class="stat-card__label">离线</div>
+            </div>
+        </div>
+
+        <!-- Host List -->
+        <div class="section-header">
+            <h2 class="section-header__title">主机列表</h2>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn--ghost btn--sm" onclick="refreshHosts()">🔄 刷新</button>
+                <button class="btn btn--primary btn--sm" onclick="openAddModal()">＋ 添加主机</button>
+            </div>
+        </div>
+
+        <div class="hosts" id="host-list">
+            <!-- Dynamic content -->
+        </div>
+
+        <!-- Remote Commands Reference -->
+        <div class="section-header">
+            <h2 class="section-header__title">远程命令参考</h2>
+        </div>
+
+        <div class="cmd-ref">
+            <div style="color: var(--text-muted); font-size: 13px; line-height: 1.6;">
+                setup 完成后，以下命令可在远程主机上使用。代理默认关闭，按需开启，退出 shell 自动失效。
+            </div>
+
+            <div class="cmd-ref__grid">
+                <!-- 会话级代理 -->
+                <div class="cmd-group">
+                    <div class="cmd-group__title">⚙️ 会话级代理</div>
+
+                    <div class="cmd-item" onclick="copyCmd('srg-on')">
+                        <div class="cmd-item__code">srg-on <span class="cmd-item__badge cmd-item__badge--session">session</span></div>
+                        <div class="cmd-item__desc">开启代理，当前 shell 的 curl/pip/git/npm 等走代理</div>
+                        <div class="cmd-item__copy">点击复制</div>
+                    </div>
+
+                    <div class="cmd-item" onclick="copyCmd('srg-off')">
+                        <div class="cmd-item__code">srg-off <span class="cmd-item__badge cmd-item__badge--session">session</span></div>
+                        <div class="cmd-item__desc">关闭代理，恢复直连。关闭终端也自动失效</div>
+                        <div class="cmd-item__copy">点击复制</div>
+                    </div>
+
+                    <div class="cmd-item" onclick="copyCmd('srg-shell')">
+                        <div class="cmd-item__code">srg-shell <span class="cmd-item__badge cmd-item__badge--session">session</span></div>
+                        <div class="cmd-item__desc">开一个自带代理的子 shell，退出即恢复，不影响外层</div>
+                        <div class="cmd-item__copy">点击复制</div>
+                    </div>
+                </div>
+
+                <!-- 进程级 & 工具 -->
+                <div class="cmd-group">
+                    <div class="cmd-group__title">🛠️ 进程级代理 & 工具</div>
+
+                    <div class="cmd-item" onclick="copyCmd('srg-proxy <command>')">
+                        <div class="cmd-item__code">srg-proxy &lt;cmd&gt; <span class="cmd-item__badge cmd-item__badge--process">process</span></div>
+                        <div class="cmd-item__desc">单条命令透明代理 (mgraftcp)，适用于不认环境变量的程序</div>
+                        <div class="cmd-item__copy">点击复制</div>
+                    </div>
+
+                    <div class="cmd-item" onclick="copyCmd('srg-status')">
+                        <div class="cmd-item__code">srg-status</div>
+                        <div class="cmd-item__desc">查看当前代理状态、隧道连通性、环境变量</div>
+                        <div class="cmd-item__copy">点击复制</div>
+                    </div>
+
+                    <div class="cmd-item">
+                        <div class="cmd-item__code">Language Server <span class="cmd-item__badge cmd-item__badge--always">always</span></div>
+                        <div class="cmd-item__desc">LS wrapper 始终走代理，不受 srg-on/off 影响，确保代码智能正常工作</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 使用场景 -->
+            <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <div class="cmd-group__title">💡 典型使用场景</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 8px;">
+                    <div class="cmd-item" onclick="copyCmd('srg-on && pip install torch')">
+                        <div>
+                            <div class="cmd-item__code" style="font-size: 12px;">srg-on && pip install torch</div>
+                            <div class="cmd-item__desc">通过代理加速下载 Python 包</div>
+                        </div>
+                        <div class="cmd-item__copy">复制</div>
+                    </div>
+                    <div class="cmd-item" onclick="copyCmd('srg-proxy curl https://api.openai.com/v1/models')">
+                        <div>
+                            <div class="cmd-item__code" style="font-size: 12px;">srg-proxy curl api.openai.com</div>
+                            <div class="cmd-item__desc">单次调用通过代理访问外网 API</div>
+                        </div>
+                        <div class="cmd-item__copy">复制</div>
+                    </div>
+                    <div class="cmd-item" onclick="copyCmd('srg-shell')">
+                        <div>
+                            <div class="cmd-item__code" style="font-size: 12px;">srg-shell → git clone ... → exit</div>
+                            <div class="cmd-item__desc">子 shell 里做一批需要代理的操作，退出自动清理</div>
+                        </div>
+                        <div class="cmd-item__copy">复制</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Panel -->
+        <div class="log-panel hidden" id="log-panel">
+            <div class="log-panel__header">
+                <div class="log-panel__title">
+                    <span id="log-title">输出日志</span>
+                </div>
+                <button class="btn btn--ghost btn--sm" onclick="closeLogPanel()">✕ 关闭</button>
+            </div>
+            <div class="log-panel__body" id="log-body"></div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            SRG CLI — 完全独立于插件，代理按需开启，退出 shell 即失效
+        </footer>
+    </div>
+
+    <!-- Add Host Modal -->
+    <div class="modal-overlay" id="add-modal">
+        <div class="modal" style="max-width: 560px;">
+            <h3 class="modal__title">添加新主机</h3>
+
+            <!-- SSH Config Hosts Picker -->
+            <div class="host-picker">
+                <div class="host-picker__label">从 SSH 配置中选择</div>
+                <div class="host-picker__grid" id="ssh-hosts-grid">
+                    <div class="host-picker__empty">加载中...</div>
+                </div>
+            </div>
+
+            <div class="host-picker__divider">或手动输入</div>
+
+            <!-- Manual Input -->
+            <div class="form-group">
+                <label>远程主机名 / IP</label>
+                <input type="text" id="input-host" placeholder="例: my-server 或 user@192.168.1.100">
+            </div>
+            <div class="form-group">
+                <label>代理端口</label>
+                <input type="text" id="input-port" placeholder="7890" value="7890">
+                <div class="hint">本地代理 (Clash/V2Ray) 监听的端口</div>
+            </div>
+            <div class="modal__actions">
+                <button class="btn btn--ghost" onclick="closeAddModal()">取消</button>
+                <button class="btn btn--primary" id="btn-setup" onclick="doSetup()">开始配置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Teardown Confirm Modal -->
+    <div class="modal-overlay" id="teardown-modal">
+        <div class="modal">
+            <h3 class="modal__title">⚠️ 确认卸载</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 8px;">
+                即将卸载主机: <code id="teardown-host" style="color: var(--red); font-family: 'JetBrains Mono', monospace;"></code>
+            </p>
+            <p style="color: var(--text-muted); font-size: 13px;">
+                将移除本地 SSH 配置和远程所有 SRG 工具、shell 函数、mgraftcp 和 LS wrapper。
+            </p>
+            <div class="modal__actions">
+                <button class="btn btn--ghost" onclick="closeTeardownModal()">取消</button>
+                <button class="btn btn--danger" onclick="doTeardown()">确认卸载</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toasts"></div>
+
+    <script>
+        const API = '';  // Same origin
+
+        // ================================================================
+        // State
+        // ================================================================
+        let hosts = [];
+        let pendingTeardownHost = '';
+        let serverConnected = false;
+
+        const OFFLINE_MSG = '后端未运行。请先执行: srg web';
+
+        // ================================================================
+        // API Calls
+        // ================================================================
+        async function apiGet(endpoint) {
+            const res = await fetch(`${API}/api/${endpoint}`);
+            return res.json();
+        }
+
+        async function apiPost(endpoint, data = {}) {
+            const res = await fetch(`${API}/api/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return res.json();
+        }
+
+        // ================================================================
+        // Data Loading
+        // ================================================================
+        async function refreshHosts() {
+            try {
+                const data = await apiGet('hosts');
+                hosts = data.hosts || [];
+                serverConnected = true;
+                renderBanner();
+                renderHosts();
+                renderStats();
+            } catch (e) {
+                serverConnected = false;
+                // Fallback: demo data for design preview
+                hosts = [
+                    { name: 'dev-server', port: 7890, status: 'connected' },
+                    { name: 'gpu-cluster', port: 7890, status: 'connected' },
+                    { name: 'staging-box', port: 1080, status: 'offline' },
+                ];
+                renderBanner();
+                renderHosts();
+                renderStats();
+            }
+        }
+
+        // ================================================================
+        // Offline Banner
+        // ================================================================
+        function renderBanner() {
+            const banner = document.getElementById('offline-banner');
+            banner.style.display = serverConnected ? 'none' : 'flex';
+        }
+
+        // ================================================================
+        // Render
+        // ================================================================
+        function renderStats() {
+            const total = hosts.length;
+            const connected = hosts.filter(h => h.status === 'connected').length;
+            const offline = total - connected;
+            document.getElementById('stat-total').textContent = total;
+            document.getElementById('stat-connected').textContent = connected;
+            document.getElementById('stat-offline').textContent = offline;
+        }
+
+        function renderHosts() {
+            const container = document.getElementById('host-list');
+
+            if (hosts.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state__icon">🌐</div>
+                        <div class="empty-state__title">尚未配置主机</div>
+                        <div class="empty-state__desc">添加远程主机来开始使用 SSH 隧道和代理</div>
+                        <button class="btn btn--primary" onclick="openAddModal()">＋ 添加第一台主机</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = hosts.map(host => `
+                <div class="host-card">
+                    <div class="host-card__status host-card__status--${host.status}"></div>
+                    <div class="host-card__info">
+                        <div class="host-card__name">
+                            ${host.name}
+                            <span class="host-card__tag host-card__tag--${host.status}">
+                                ${host.status === 'connected' ? '已连接' : '离线'}
+                            </span>
+                        </div>
+                        <div class="host-card__meta">
+                            <span>端口 <code>:${host.port}</code></span>
+                            <span>隧道 <code>RemoteForward ${host.port}</code></span>
+                        </div>
+                    </div>
+                    <div class="host-card__actions">
+                        <button class="btn btn--ghost btn--sm" onclick="doStatus('${host.name}')">📊 状态</button>
+                        <button class="btn btn--ghost btn--sm" onclick="doDoctor('${host.name}')">🩺 诊断</button>
+                        <button class="btn btn--danger btn--sm" onclick="openTeardownModal('${host.name}')">卸载</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ================================================================
+        // Guard: check server before actions
+        // ================================================================
+        function requireServer() {
+            if (!serverConnected) {
+                toast(OFFLINE_MSG, 'error');
+                return false;
+            }
+            return true;
+        }
+
+        // ================================================================
+        // Actions
+        // ================================================================
+        async function doSetup() {
+            if (!requireServer()) return;
+
+            const host = document.getElementById('input-host').value.trim();
+            const port = document.getElementById('input-port').value.trim() || '7890';
+
+            if (!host) {
+                toast('请输入主机名', 'error');
+                return;
+            }
+
+            closeAddModal();
+            showLog(`配置主机: ${host} (端口 ${port})`);
+            appendLog(`$ srg setup ${host} ${port}\n\n`, 'info');
+
+            try {
+                const data = await apiPost('setup', { host, port });
+                appendLog(data.output || '完成', data.success ? 'pass' : 'fail');
+                if (data.success) toast(`${host} 配置完成`, 'success');
+                refreshHosts();
+            } catch (e) {
+                appendLog(`错误: ${e.message}`, 'fail');
+                toast('配置失败', 'error');
+            }
+        }
+
+        async function doStatus(host) {
+            if (!requireServer()) return;
+            showLog(`状态检查: ${host}`);
+            appendLog(`$ srg status ${host}\n\n`, 'info');
+            try {
+                const data = await apiPost('status', { host });
+                appendLog(data.output || '完成');
+            } catch (e) {
+                appendLog(`错误: ${e.message}`, 'fail');
+            }
+        }
+
+        async function doDoctor(host) {
+            if (!requireServer()) return;
+            showLog(`问题排查: ${host}`);
+            appendLog(`$ srg doctor ${host}\n\n`, 'info');
+            try {
+                const data = await apiPost('doctor', { host });
+                appendLog(data.output || '完成');
+            } catch (e) {
+                appendLog(`错误: ${e.message}`, 'fail');
+            }
+        }
+
+        function openTeardownModal(host) {
+            if (!requireServer()) return;
+            pendingTeardownHost = host;
+            document.getElementById('teardown-host').textContent = host;
+            document.getElementById('teardown-modal').classList.add('active');
+        }
+
+        function closeTeardownModal() {
+            document.getElementById('teardown-modal').classList.remove('active');
+        }
+
+        async function doTeardown() {
+            const host = pendingTeardownHost;
+            closeTeardownModal();
+            showLog(`卸载主机: ${host}`);
+            appendLog(`$ srg teardown ${host}\n\n`, 'info');
+            try {
+                const data = await apiPost('teardown', { host });
+                appendLog(data.output || '完成', data.success ? 'pass' : 'fail');
+                if (data.success) toast(`${host} 已卸载`, 'success');
+                refreshHosts();
+            } catch (e) {
+                appendLog(`错误: ${e.message}`, 'fail');
+                toast('卸载失败', 'error');
+            }
+        }
+
+        // ================================================================
+        // Log Panel
+        // ================================================================
+        function showLog(title) {
+            document.getElementById('log-panel').classList.remove('hidden');
+            document.getElementById('log-title').textContent = title;
+            document.getElementById('log-body').innerHTML = '';
+        }
+
+        function appendLog(text, type = '') {
+            const el = document.getElementById('log-body');
+            // Colorize output
+            const colored = text
+                .replace(/✓/g, '<span class="log-line--pass">✓</span>')
+                .replace(/✗/g, '<span class="log-line--fail">✗</span>')
+                .replace(/⚠/g, '<span class="log-line--warn">⚠</span>')
+                .replace(/→/g, '<span class="log-line--dim">→</span>')
+                .replace(/\[INFO\]/g, '<span class="log-line--info">[INFO]</span>')
+                .replace(/\[DONE\]/g, '<span class="log-line--pass">[DONE]</span>')
+                .replace(/\[ERROR\]/g, '<span class="log-line--fail">[ERROR]</span>')
+                .replace(/\[WARN\]/g, '<span class="log-line--warn">[WARN]</span>')
+                .replace(/\[SKIP\]/g, '<span class="log-line--dim">[SKIP]</span>');
+
+            if (type) {
+                el.innerHTML += `<span class="log-line--${type}">${colored}</span>`;
+            } else {
+                el.innerHTML += colored;
+            }
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function closeLogPanel() {
+            document.getElementById('log-panel').classList.add('hidden');
+        }
+
+        // ================================================================
+        // Modal
+        // ================================================================
+        let sshHostsCache = null;
+
+        async function openAddModal() {
+            document.getElementById('input-host').value = '';
+            document.getElementById('input-port').value = '7890';
+            document.getElementById('add-modal').classList.add('active');
+
+            // Load SSH hosts
+            const grid = document.getElementById('ssh-hosts-grid');
+            grid.innerHTML = '<div class="host-picker__empty">加载中...</div>';
+
+            let sshHosts = [];
+            try {
+                const data = await apiGet('ssh-hosts');
+                sshHosts = data.hosts || [];
+                sshHostsCache = sshHosts;
+            } catch (e) {
+                // Offline — show demo
+                if (!sshHostsCache) {
+                    sshHosts = [
+                        { name: 'dev-server', hostname: '10.0.1.100', source: 'config.d/work.conf', configured: true },
+                        { name: 'gpu-01', hostname: '10.0.2.50', source: 'config.d/gpu.conf', configured: false },
+                        { name: 'gpu-02', hostname: '10.0.2.51', source: 'config.d/gpu.conf', configured: false },
+                        { name: 'staging', hostname: '192.168.1.200', source: '~/.ssh/config', configured: false },
+                    ];
+                } else {
+                    sshHosts = sshHostsCache;
+                }
+            }
+
+            if (sshHosts.length === 0) {
+                grid.innerHTML = '<div class="host-picker__empty">未在 ~/.ssh/config 或 config.d/ 中找到主机。请在下方手动输入。</div>';
+            } else {
+                grid.innerHTML = sshHosts.map(h => `
+                    <div class="host-chip ${h.configured ? 'configured' : ''}"
+                         onclick="${h.configured ? '' : `selectHostChip(this, '${h.name}')`}"
+                         title="${h.configured ? '已配置 SRG' : `来源: ${h.source}`}">
+                        <div class="host-chip__name">
+                            ${h.name}
+                            ${h.configured ? '<span class="host-chip__badge">已配置</span>' : ''}
+                        </div>
+                        <div class="host-chip__meta">
+                            ${h.hostname ? `<span>${h.hostname}</span>` : ''}
+                            <span>${h.source}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            setTimeout(() => document.getElementById('input-host').focus(), 200);
+        }
+
+        function selectHostChip(el, name) {
+            // Deselect all
+            document.querySelectorAll('.host-chip').forEach(c => c.classList.remove('selected'));
+            // Select this one
+            el.classList.add('selected');
+            // Fill input
+            document.getElementById('input-host').value = name;
+        }
+
+        function closeAddModal() {
+            document.getElementById('add-modal').classList.remove('active');
+        }
+
+        // Close modal on backdrop click
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', e => {
+                if (e.target === overlay) overlay.classList.remove('active');
+            });
+        });
+
+        // Close modal on Escape
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+            }
+        });
+
+        // ================================================================
+        // Toast
+        // ================================================================
+        function toast(msg, type = 'info') {
+            const container = document.getElementById('toasts');
+            const el = document.createElement('div');
+            el.className = `toast toast--${type}`;
+            el.innerHTML = `${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'} ${msg}`;
+            container.appendChild(el);
+            setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+        }
+
+        // ================================================================
+        // Copy Command
+        // ================================================================
+        function copyCmd(cmd) {
+            navigator.clipboard.writeText(cmd).then(() => {
+                toast(`已复制: ${cmd}`, 'success');
+            }).catch(() => {
+                // Fallback for non-HTTPS
+                const ta = document.createElement('textarea');
+                ta.value = cmd;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                toast(`已复制: ${cmd}`, 'success');
+            });
+        }
+
+        // ================================================================
+        // Init
+        // ================================================================
+        refreshHosts();
+        // Auto-refresh every 30s
+        setInterval(refreshHosts, 30000);
+    </script>
+</body>
+</html>

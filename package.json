@@ -1,0 +1,159 @@
+{
+  "name": "ssh-relay-guard",
+  "publisher": "double12gzh",
+  "displayName": "SSH Relay Guard",
+  "description": "SSH Relay Guard (SRG) manages reverse SSH tunnels and transparently routes traffic through your local proxy, bypassing network restrictions and DNS pollution on remote servers.",
+  "icon": "srg-icon.png",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/double12gzh/ssh-relay-guard"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ssh-relay-guard.setup",
+        "title": "SSH Relay Guard: Setup Remote Environment"
+      },
+      {
+        "command": "ssh-relay-guard.rollback",
+        "title": "SSH Relay Guard: Rollback Remote Environment"
+      },
+      {
+        "command": "ssh-relay-guard.enableForwarding",
+        "title": "SSH Relay Guard: Enable Port Forwarding"
+      },
+      {
+        "command": "ssh-relay-guard.disableForwarding",
+        "title": "SSH Relay Guard: Disable Port Forwarding"
+      },
+      {
+        "command": "ssh-relay-guard.tunnelStatus",
+        "title": "SSH Relay Guard: Show Tunnel Status"
+      },
+      {
+        "command": "ssh-relay-guard.checkProxy",
+        "title": "SSH Relay Guard: Check Proxy"
+      },
+      {
+        "command": "ssh-relay-guard.showOutput",
+        "title": "SSH Relay Guard: Show Output"
+      },
+      {
+        "command": "ssh-relay-guard.showStatusPanel",
+        "title": "SSH Relay Guard: Show Dashboard"
+      },
+      {
+        "command": "ssh-relay-guard.refreshStatus",
+        "title": "SSH Relay Guard: Refresh Status"
+      },
+      {
+        "command": "ssh-relay-guard.diagnose",
+        "title": "SSH Relay Guard: Run Health Check"
+      },
+      {
+        "command": "ssh-relay-guard.showTrafficPanel",
+        "title": "SSH Relay Guard: Show Traffic Monitor"
+      }
+    ],
+    "configuration": {
+      "title": "SSH Relay Guard",
+      "properties": {
+        "ssh-relay-guard.enableLocalForwarding": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Enable local proxy via SSH reverse tunnel. When true, the extension manages ~/.ssh/config.srg and forwards the remote port to your local machine."
+        },
+        "ssh-relay-guard.localProxyPort": {
+          "type": "number",
+          "default": 7890,
+          "scope": "application",
+          "description": "Local proxy port on your machine (e.g., 7890 for Clash). Only used when enableLocalForwarding is true."
+        },
+        "ssh-relay-guard.remoteProxyHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "scope": "machine-overridable",
+          "description": "The host address on the remote server where the proxy is reachable. Use 127.0.0.1 when enableLocalForwarding is true."
+        },
+        "ssh-relay-guard.remoteProxyPort": {
+          "type": "number",
+          "default": 7890,
+          "scope": "machine-overridable",
+          "description": "The port on the remote server used as the proxy gateway."
+        },
+        "ssh-relay-guard.showStatusOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine-overridable",
+          "description": "Show a status notification when connecting to a remote server."
+        },
+        "ssh-relay-guard.proxyType": {
+          "type": "string",
+          "default": "http",
+          "enum": [
+            "http",
+            "socks5"
+          ],
+          "enumDescriptions": [
+            "HTTP proxy (recommended for most proxy software like Clash, V2Ray)",
+            "SOCKS5 proxy (use if your proxy only supports SOCKS5)"
+          ],
+          "scope": "machine-overridable",
+          "description": "The proxy protocol type. Choose HTTP for most proxy software (Clash, V2Ray, etc), or SOCKS5 if your proxy only supports SOCKS5."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:uninstall": "node src/lifecycle/uninstall.js",
+    "build:package": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.100.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.1",
+    "eslint": "^9.39.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.1"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix --quiet"
+    ]
+  }
+}

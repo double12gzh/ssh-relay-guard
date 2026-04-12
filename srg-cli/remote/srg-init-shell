@@ -1,0 +1,51 @@
+#!/bin/bash
+# ============================================================================
+# srg-init-shell — 远程 shell 环境初始化
+# ============================================================================
+# 由 srg setup 部署到远程并执行，功能：
+#   1. 注入 srg-on/srg-off 便捷函数到 .bashrc/.zshrc
+#   2. 确保 ~/bin 在 PATH 中
+#
+# 只修改函数定义，不设置任何代理环境变量。
+# 使用 SRG 标记区块，支持幂等更新和干净卸载。
+#
+# 参数:
+#   $1 — SRG_MARKER 开始标记
+#   $2 — SRG_MARKER_END 结束标记
+# ============================================================================
+
+set -euo pipefail
+
+SRG_MARKER="${1:?缺少参数: SRG_MARKER}"
+SRG_MARKER_END="${2:?缺少参数: SRG_MARKER_END}"
+
+# 向指定 profile 文件注入 SRG 函数定义
+inject_functions() {
+    local profile="$1"
+    [ -f "$profile" ] || return 0
+
+    # 清理旧区块
+    if grep -q "$SRG_MARKER" "$profile" 2>/dev/null; then
+        sed -i "/$SRG_MARKER/,/$SRG_MARKER_END/d" "$profile"
+    fi
+
+    # 写入新区块（仅函数定义，不 export 任何变量）
+    cat >> "$profile" << EOF
+$SRG_MARKER
+# SRG 便捷函数 (代理默认关闭，按需开启)
+srg-on()  { source "\$HOME/bin/srg-on"; }
+srg-off() { source "\$HOME/bin/srg-off"; }
+$SRG_MARKER_END
+EOF
+}
+
+# 注入到常见 shell 配置
+inject_functions "$HOME/.bashrc"
+[ -f "$HOME/.zshrc" ] && inject_functions "$HOME/.zshrc"
+echo "[INFO] Shell 函数已注入"
+
+# 确保 ~/bin 在 PATH 中
+if ! grep -q 'PATH="$HOME/bin' "$HOME/.bashrc" 2>/dev/null; then
+    echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
+    echo "[INFO] ~/bin 已加入 PATH"
+fi

@@ -1,0 +1,56 @@
+#!/bin/bash
+# ============================================================================
+# srg-deploy-ls-wrapper — 部署 Language Server Wrapper
+# ============================================================================
+# 查找远程的 Language Server 二进制，备份后替换为代理 wrapper。
+#
+# 参数:
+#   $1 — wrapper 模板路径 (已替换占位符的 ls-wrapper.sh)
+# ============================================================================
+
+set -euo pipefail
+
+WRAPPER_TEMPLATE="${1:?缺少参数: wrapper 模板路径}"
+
+# Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
+IDE_SERVER_DIRS=(".antigravity-server")
+
+_find_args=()
+for _d in "${IDE_SERVER_DIRS[@]}"; do
+    _find_args+=("$HOME/$_d/bin")
+done
+TARGETS=$(find "${_find_args[@]}" \
+    -path "*/extensions/*/bin/language_server_linux_*" \
+    -type f 2>/dev/null | grep -v ".bak$" || true)
+
+if [ -z "$TARGETS" ]; then
+    echo "[WARN] 未找到 Language Server 二进制 (IDE 可能未安装)"
+    rm -f "$WRAPPER_TEMPLATE"
+    exit 0
+fi
+
+CONFIGURED=0
+SKIPPED=0
+
+while IFS= read -r TARGET; do
+    [ -z "$TARGET" ] && continue
+    BAK="${TARGET}.bak"
+
+    if head -1 "$TARGET" 2>/dev/null | grep -q "^#!/bin/bash"; then
+        echo "[SKIP] 已是 wrapper: $(basename "$TARGET")"
+        SKIPPED=$((SKIPPED + 1))
+        continue
+    fi
+
+    mv "$TARGET" "$BAK"
+    echo "[INFO] 备份: $TARGET → $BAK"
+
+    cp "$WRAPPER_TEMPLATE" "$TARGET"
+    chmod +x "$TARGET"
+
+    echo "[INFO] Wrapper 已创建: $(basename "$TARGET")"
+    CONFIGURED=$((CONFIGURED + 1))
+done <<< "$TARGETS"
+
+rm -f "$WRAPPER_TEMPLATE"
+echo "[DONE] LS Wrapper: $CONFIGURED 个已配置, $SKIPPED 个已跳过"

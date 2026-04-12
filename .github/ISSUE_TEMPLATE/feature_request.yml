@@ -1,0 +1,59 @@
+name: "✨ Feature Request"
+description: "Suggest a new feature or improvement for SSH Relay Guard"
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提出功能建议！请尽可能清晰地描述你的需求。
+
+  - type: dropdown
+    id: feature-area
+    attributes:
+      label: 功能领域
+      description: 这个功能建议属于哪个领域？
+      options:
+        - "隧道管理 (Tunnel Management)"
+        - "代理配置 (Proxy Configuration)"
+        - "诊断/健康检查 (Diagnostics / Health Check)"
+        - "Dashboard / UI"
+        - "远程环境部署 (Remote Setup)"
+        - "CLI 工具 (srg-on / srg-off / srg-proxy)"
+        - "新 IDE 支持 (New IDE Support)"
+        - "其他 (Other)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题？
+      description: 清晰地描述你遇到的困难或不便
+      placeholder: "当我尝试 ... 时，需要 ... ，但现在只能 ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 你期望的解决方案
+      description: 描述你希望的功能表现
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+      description: 你是否考虑过其他替代方案？
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 补充信息
+      description: 其他有助于理解需求的信息（截图、参考链接、使用场景等）
+    validations:
+      required: false

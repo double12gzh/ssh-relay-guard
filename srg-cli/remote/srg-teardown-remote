@@ -1,0 +1,53 @@
+#!/bin/bash
+# ============================================================================
+# srg-teardown-remote — 远程清理
+# ============================================================================
+# 清理远程上的所有 SRG 配置：shell 函数、工具脚本、mgraftcp、LS wrapper。
+#
+# 参数:
+#   $1 — SRG_MARKER 开始标记
+#   $2 — SRG_MARKER_END 结束标记
+# ============================================================================
+
+set -uo pipefail
+
+SRG_MARKER="${1:?缺少参数: SRG_MARKER}"
+SRG_MARKER_END="${2:?缺少参数: SRG_MARKER_END}"
+
+# Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
+IDE_SERVER_DIRS=(".antigravity-server")
+
+# 1. 清理 shell 函数定义
+for f in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$f" ] && grep -q "$SRG_MARKER" "$f" 2>/dev/null; then
+        sed -i "/$SRG_MARKER/,/$SRG_MARKER_END/d" "$f"
+        echo "[INFO] 已清理: $f"
+    fi
+done
+
+# 2. 删除工具脚本 + mgraftcp
+for t in srg-on srg-off srg-shell srg-proxy srg-status mgraftcp-fakedns; do
+    rm -f "$HOME/bin/$t"
+done
+rm -f "$HOME/bin/libdnsredir-linux-"*.so
+echo "[INFO] SRG 工具 + mgraftcp 已删除"
+
+# 3. 恢复 LS 原始二进制
+_find_args=()
+for _d in "${IDE_SERVER_DIRS[@]}"; do
+    _find_args+=("$HOME/$_d")
+done
+BAKS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/*" -name "language_server_linux_*.bak" -type f 2>/dev/null || true)
+if [ -n "$BAKS" ]; then
+    N=0
+    while IFS= read -r BAK; do
+        [ -z "$BAK" ] && continue
+        T="${BAK%.bak}"
+        [ -f "$T" ] && rm -f "$T"
+        mv "$BAK" "$T"
+        N=$((N + 1))
+    done <<< "$BAKS"
+    echo "[INFO] 已恢复 $N 个 LS 二进制"
+fi
+
+echo "[DONE] 远程清理完成"

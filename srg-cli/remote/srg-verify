@@ -1,0 +1,69 @@
+#!/bin/bash
+# ============================================================================
+# srg-verify — 远程连通性验证
+# ============================================================================
+# 检查 SSH 隧道、代理协议、工具完整性和 LS wrapper 状态。
+#
+# 参数:
+#   $1 — 代理端口
+# ============================================================================
+
+set -uo pipefail
+
+PORT="${1:?缺少参数: 代理端口}"
+ADDR="127.0.0.1:$PORT"
+PASS=0
+
+# Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
+IDE_SERVER_DIRS=(".antigravity-server")
+FAIL=0
+
+check() {
+    if [ "$2" = "ok" ]; then
+        echo -e "  \033[0;32m✓\033[0m $1"
+        PASS=$((PASS + 1))
+    else
+        echo -e "  \033[0;31m✗\033[0m $1 \033[2m($2)\033[0m"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# 1. SSH 隧道
+if timeout 3 bash -c "echo > /dev/tcp/127.0.0.1/$PORT" 2>/dev/null; then
+    check "SSH 隧道 :$PORT" "ok"
+else
+    check "SSH 隧道 :$PORT" "不可达"
+fi
+
+# 2. HTTP 代理
+CODE=$(curl -x http://$ADDR https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10 2>/dev/null || echo "000")
+[[ "$CODE" =~ ^(200|301|302)$ ]] && check "HTTP  → Google" "ok" || check "HTTP  → Google" "HTTP $CODE"
+
+# 3. SOCKS5 代理
+CODE=$(curl -x socks5://$ADDR https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10 2>/dev/null || echo "000")
+[[ "$CODE" =~ ^(200|301|302)$ ]] && check "SOCKS5 → Google" "ok" || check "SOCKS5 → Google" "HTTP $CODE"
+
+# 4. 工具集
+ALL_OK=true
+for t in srg-on srg-off srg-shell srg-proxy srg-status; do
+    [ -f "$HOME/bin/$t" ] || ALL_OK=false
+done
+[ -x "$HOME/bin/mgraftcp-fakedns" ] || ALL_OK=false
+$ALL_OK && check "SRG 工具集" "ok" || check "SRG 工具集" "不完整"
+
+# 5. LS wrapper
+_find_args=()
+for _d in "${IDE_SERVER_DIRS[@]}"; do
+    _find_args+=("$HOME/$_d/bin")
+done
+LS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$" | head -1 || true)
+if [ -n "$LS" ] && head -1 "$LS" 2>/dev/null | grep -q "^#!/bin/bash"; then
+    check "LS Wrapper" "ok"
+elif [ -z "$LS" ]; then
+    check "LS Wrapper" "LS 未安装"
+else
+    check "LS Wrapper" "未配置"
+fi
+
+echo ""
+echo "  通过: $PASS / $((PASS + FAIL))"
