@@ -54,9 +54,15 @@ $ALL_OK && check "SRG 工具集" "ok" || check "SRG 工具集" "不完整"
 # 5. LS wrapper
 _find_args=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
-    _find_args+=("$HOME/$_d/bin")
+    if [ -d "$HOME/$_d" ]; then
+        _find_args+=("$HOME/$_d")
+    fi
 done
-LS=$(find "${_find_args[@]}" -path "*/extensions/*/bin/language_server_linux_*" -type f 2>/dev/null | grep -v ".bak$" | head -1 || true)
+if [ ${#_find_args[@]} -gt 0 ]; then
+    LS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$" | head -1 || true)
+else
+    LS=""
+fi
 if [ -n "$LS" ] && head -1 "$LS" 2>/dev/null | grep -q "^#!/bin/bash"; then
     check "LS Wrapper" "ok"
 elif [ -z "$LS" ]; then

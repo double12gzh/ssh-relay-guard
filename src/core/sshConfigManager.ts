@@ -94,11 +94,14 @@ export async function updateForHost(
 				mainContent = await fs.readFile(mainConfigPath, 'utf-8');
 			} catch { /* doesn't exist */ }
 
-			if (!mainContent.includes(INCLUDE_LINE)) {
-				mainContent = `${INCLUDE_LINE}\n${mainContent}`;
-				await fs.writeFile(mainConfigPath, mainContent, { mode: 0o600 });
-				log(`Added Include line to ${mainConfigPath}`);
+			// Always ensure INCLUDE_LINE is exactly at the end by removing older ones first
+			if (mainContent.includes(INCLUDE_LINE)) {
+				mainContent = mainContent.split('\n').filter(line => line.trim() !== INCLUDE_LINE).join('\n');
 			}
+			
+			mainContent = mainContent.trimEnd() + `\n\n${INCLUDE_LINE}\n`;
+			await fs.writeFile(mainConfigPath, mainContent.trimStart(), { mode: 0o600 });
+			log(`Added/Moved Include line to the end of ${mainConfigPath}`);
 		} else {
 			try {
 				let srgContent = await fs.readFile(srgConfigPath, 'utf-8');

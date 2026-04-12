@@ -73,13 +73,21 @@ def get_hosts() -> list[dict]:
             if port_match:
                 port = port_match.group(1)
 
-        # Check ControlMaster socket status
+        # Check ControlMaster socket status via ssh -O check
         status = "offline"
-        if SSH_SOCKET_DIR.exists():
-            for sock in SSH_SOCKET_DIR.iterdir():
-                if name in sock.name:
-                    status = "connected"
-                    break
+        try:
+            res = subprocess.run(
+                ["ssh", "-O", "check", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", name],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            # ssh -O check prints "Master running (pid=xxxx)" to stderr on success
+            stderr_output = res.stderr.lower() if res.stderr else ""
+            if res.returncode == 0 and "running" in stderr_output:
+                status = "connected"
+        except Exception:
+            pass
 
         hosts.append({
             "name": name,

@@ -486,38 +486,68 @@
         }
 
         /* ================================================================
-           Log Panel
+           Log Panel Drawer
            ================================================================ */
+        .log-drawer-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            z-index: 150;
+            opacity: 0;
+            visibility: hidden;
+            transition: var(--transition);
+        }
+
+        .log-drawer-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
         .log-panel {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: hidden;
-            margin-bottom: 40px;
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            max-width: 640px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border);
+            z-index: 151;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .log-panel.active {
+            transform: translateX(0);
         }
 
         .log-panel__header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px 20px;
+            padding: 24px;
             border-bottom: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.02);
         }
 
         .log-panel__title {
-            font-size: 14px;
+            font-size: 16px;
             font-weight: 600;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
 
         .log-panel__body {
-            padding: 16px 20px;
-            max-height: 360px;
+            flex: 1;
+            padding: 24px;
             overflow-y: auto;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
+            font-size: 13px;
             line-height: 1.8;
             color: var(--text-secondary);
             white-space: pre-wrap;
@@ -534,7 +564,53 @@
         .log-line--info { color: var(--accent-light); }
         .log-line--dim  { color: var(--text-muted); }
 
-        .log-panel.hidden { display: none; }
+        /* Log loading indicator */
+        .log-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 48px 0;
+            color: var(--text-muted);
+        }
+
+        .log-loading__bar {
+            width: 200px;
+            height: 3px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .log-loading__bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -40%;
+            width: 40%;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            animation: log-loading-slide 1.2s ease-in-out infinite;
+        }
+
+        @keyframes log-loading-slide {
+            0%   { left: -40%; }
+            100% { left: 100%; }
+        }
+
+        .log-loading__text {
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            animation: log-loading-pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes log-loading-pulse {
+            0%, 100% { opacity: 0.4; }
+            50%      { opacity: 1; }
+        }
 
         /* ================================================================
            Footer
@@ -616,12 +692,69 @@
             margin-bottom: 40px;
         }
 
-        .cmd-ref__grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 24px;
-            margin-top: 20px;
+        .cmd-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
         }
+
+        .cmd-table thead th {
+            text-align: left;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            padding: 0 12px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .cmd-table thead th:first-child { padding-left: 0; }
+
+        .cmd-table tbody tr {
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            transition: var(--transition);
+        }
+
+        .cmd-table__row { cursor: pointer; }
+        .cmd-table__row:hover { background: rgba(255,255,255,0.03); }
+
+        .cmd-table td {
+            padding: 10px 12px;
+            vertical-align: middle;
+        }
+
+        .cmd-table td:first-child { padding-left: 0; }
+
+        .cmd-table__cmd {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent-light);
+            white-space: nowrap;
+        }
+
+        .cmd-table__desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .cmd-scope {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        .cmd-scope--session { background: var(--accent-glow); color: var(--accent-light); }
+        .cmd-scope--process { background: var(--yellow-glow); color: var(--yellow); }
+        .cmd-scope--always  { background: var(--green-glow);  color: var(--green); }
+        .cmd-scope--info    { background: rgba(255,255,255,0.06); color: var(--text-muted); }
 
         .cmd-group__title {
             font-size: 11px;
@@ -635,76 +768,37 @@
             gap: 8px;
         }
 
-        .cmd-item {
+        .cmd-examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 10px;
+        }
+
+        .cmd-example {
             display: flex;
-            align-items: flex-start;
-            gap: 12px;
+            flex-direction: column;
+            gap: 4px;
             padding: 10px 14px;
             border-radius: var(--radius-xs);
-            margin-bottom: 4px;
-            transition: var(--transition);
+            border: 1px solid var(--border);
             cursor: pointer;
-            position: relative;
+            transition: var(--transition);
         }
 
-        .cmd-item:hover {
-            background: rgba(255, 255, 255, 0.03);
+        .cmd-example:hover {
+            background: rgba(255,255,255,0.03);
+            border-color: rgba(255,255,255,0.08);
         }
 
-        .cmd-item__code {
+        .cmd-example code {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--accent-light);
-            white-space: nowrap;
-            min-width: 160px;
-        }
-
-        .cmd-item__desc {
             font-size: 12px;
-            color: var(--text-muted);
-            line-height: 1.5;
+            color: var(--accent-light);
         }
 
-        .cmd-item__copy {
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
+        .cmd-example span {
             font-size: 11px;
             color: var(--text-muted);
-            opacity: 0;
-            transition: var(--transition);
-        }
-
-        .cmd-item:hover .cmd-item__copy {
-            opacity: 1;
-        }
-
-        .cmd-item__badge {
-            display: inline-block;
-            font-size: 9px;
-            font-weight: 600;
-            padding: 1px 6px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-left: 6px;
-        }
-
-        .cmd-item__badge--always {
-            background: var(--green-glow);
-            color: var(--green);
-        }
-
-        .cmd-item__badge--session {
-            background: var(--accent-glow);
-            color: var(--accent-light);
-        }
-
-        .cmd-item__badge--process {
-            background: var(--yellow-glow);
-            color: var(--yellow);
         }
 
         /* ================================================================
@@ -853,8 +947,8 @@
             <div>
                 <div style="font-weight: 600; color: var(--yellow); margin-bottom: 4px;">预览模式 — 后端未连接</div>
                 <div style="color: var(--text-muted);">
-                    当前显示演示数据。启动后端以使用完整功能:
-                    <code style="font-family: 'JetBrains Mono', monospace; color: var(--accent-light); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 4px;">srg web</code>
+                    当前显示演示数据。启动后端以使用完整功能：先 cd 到 srg-cli 目录，然后执行
+                    <code style="font-family: 'JetBrains Mono', monospace; color: var(--accent-light); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 4px;">./srg web</code>
                 </div>
             </div>
         </div>
@@ -894,88 +988,76 @@
         </div>
 
         <div class="cmd-ref">
-            <div style="color: var(--text-muted); font-size: 13px; line-height: 1.6;">
+            <div style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 20px;">
                 setup 完成后，以下命令可在远程主机上使用。代理默认关闭，按需开启，退出 shell 自动失效。
             </div>
 
-            <div class="cmd-ref__grid">
-                <!-- 会话级代理 -->
-                <div class="cmd-group">
-                    <div class="cmd-group__title">⚙️ 会话级代理</div>
+            <table class="cmd-table">
+                <thead>
+                    <tr>
+                        <th>命令</th>
+                        <th>作用域</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="cmd-table__row" onclick="copyCmd('srg-on')">
+                        <td class="cmd-table__cmd">srg-on</td>
+                        <td><span class="cmd-scope cmd-scope--session">session</span></td>
+                        <td class="cmd-table__desc">开启代理，当前 shell 的 curl / pip / git / npm 等走代理</td>
+                    </tr>
+                    <tr class="cmd-table__row" onclick="copyCmd('srg-off')">
+                        <td class="cmd-table__cmd">srg-off</td>
+                        <td><span class="cmd-scope cmd-scope--session">session</span></td>
+                        <td class="cmd-table__desc">关闭代理，恢复直连。关闭终端也自动失效</td>
+                    </tr>
+                    <tr class="cmd-table__row" onclick="copyCmd('srg-shell')">
+                        <td class="cmd-table__cmd">srg-shell</td>
+                        <td><span class="cmd-scope cmd-scope--session">session</span></td>
+                        <td class="cmd-table__desc">开一个自带代理的子 shell，exit 即恢复</td>
+                    </tr>
+                    <tr class="cmd-table__row" onclick="copyCmd('srg-proxy <command>')">
+                        <td class="cmd-table__cmd">srg-proxy &lt;cmd&gt;</td>
+                        <td><span class="cmd-scope cmd-scope--process">process</span></td>
+                        <td class="cmd-table__desc">单条命令透明代理 (mgraftcp)，适用于不认环境变量的程序</td>
+                    </tr>
+                    <tr class="cmd-table__row" onclick="copyCmd('srg-status')">
+                        <td class="cmd-table__cmd">srg-status</td>
+                        <td><span class="cmd-scope cmd-scope--info">info</span></td>
+                        <td class="cmd-table__desc">查看当前代理状态、隧道连通性、环境变量</td>
+                    </tr>
+                    <tr>
+                        <td class="cmd-table__cmd" style="opacity:.6">Language Server</td>
+                        <td><span class="cmd-scope cmd-scope--always">always</span></td>
+                        <td class="cmd-table__desc">LS wrapper 始终走代理，不受 srg-on/off 影响</td>
+                    </tr>
+                </tbody>
+            </table>
 
-                    <div class="cmd-item" onclick="copyCmd('srg-on')">
-                        <div class="cmd-item__code">srg-on <span class="cmd-item__badge cmd-item__badge--session">session</span></div>
-                        <div class="cmd-item__desc">开启代理，当前 shell 的 curl/pip/git/npm 等走代理</div>
-                        <div class="cmd-item__copy">点击复制</div>
-                    </div>
-
-                    <div class="cmd-item" onclick="copyCmd('srg-off')">
-                        <div class="cmd-item__code">srg-off <span class="cmd-item__badge cmd-item__badge--session">session</span></div>
-                        <div class="cmd-item__desc">关闭代理，恢复直连。关闭终端也自动失效</div>
-                        <div class="cmd-item__copy">点击复制</div>
-                    </div>
-
-                    <div class="cmd-item" onclick="copyCmd('srg-shell')">
-                        <div class="cmd-item__code">srg-shell <span class="cmd-item__badge cmd-item__badge--session">session</span></div>
-                        <div class="cmd-item__desc">开一个自带代理的子 shell，退出即恢复，不影响外层</div>
-                        <div class="cmd-item__copy">点击复制</div>
-                    </div>
-                </div>
-
-                <!-- 进程级 & 工具 -->
-                <div class="cmd-group">
-                    <div class="cmd-group__title">🛠️ 进程级代理 & 工具</div>
-
-                    <div class="cmd-item" onclick="copyCmd('srg-proxy <command>')">
-                        <div class="cmd-item__code">srg-proxy &lt;cmd&gt; <span class="cmd-item__badge cmd-item__badge--process">process</span></div>
-                        <div class="cmd-item__desc">单条命令透明代理 (mgraftcp)，适用于不认环境变量的程序</div>
-                        <div class="cmd-item__copy">点击复制</div>
-                    </div>
-
-                    <div class="cmd-item" onclick="copyCmd('srg-status')">
-                        <div class="cmd-item__code">srg-status</div>
-                        <div class="cmd-item__desc">查看当前代理状态、隧道连通性、环境变量</div>
-                        <div class="cmd-item__copy">点击复制</div>
-                    </div>
-
-                    <div class="cmd-item">
-                        <div class="cmd-item__code">Language Server <span class="cmd-item__badge cmd-item__badge--always">always</span></div>
-                        <div class="cmd-item__desc">LS wrapper 始终走代理，不受 srg-on/off 影响，确保代码智能正常工作</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 使用场景 -->
-            <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
                 <div class="cmd-group__title">💡 典型使用场景</div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 8px;">
-                    <div class="cmd-item" onclick="copyCmd('srg-on && pip install torch')">
-                        <div>
-                            <div class="cmd-item__code" style="font-size: 12px;">srg-on && pip install torch</div>
-                            <div class="cmd-item__desc">通过代理加速下载 Python 包</div>
-                        </div>
-                        <div class="cmd-item__copy">复制</div>
+                <div class="cmd-examples">
+                    <div class="cmd-example" onclick="copyCmd('srg-on && pip install torch')">
+                        <code>srg-on && pip install torch</code>
+                        <span>通过代理加速安装 Python 包</span>
                     </div>
-                    <div class="cmd-item" onclick="copyCmd('srg-proxy curl https://api.openai.com/v1/models')">
-                        <div>
-                            <div class="cmd-item__code" style="font-size: 12px;">srg-proxy curl api.openai.com</div>
-                            <div class="cmd-item__desc">单次调用通过代理访问外网 API</div>
-                        </div>
-                        <div class="cmd-item__copy">复制</div>
+                    <div class="cmd-example" onclick="copyCmd('srg-proxy curl https://api.openai.com/v1/models')">
+                        <code>srg-proxy curl api.openai.com</code>
+                        <span>单次通过代理访问外网 API</span>
                     </div>
-                    <div class="cmd-item" onclick="copyCmd('srg-shell')">
-                        <div>
-                            <div class="cmd-item__code" style="font-size: 12px;">srg-shell → git clone ... → exit</div>
-                            <div class="cmd-item__desc">子 shell 里做一批需要代理的操作，退出自动清理</div>
-                        </div>
-                        <div class="cmd-item__copy">复制</div>
+                    <div class="cmd-example" onclick="copyCmd('srg-shell')">
+                        <code>srg-shell → git clone ... → exit</code>
+                        <span>子 shell 批量操作，退出自动清理</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Log Panel -->
-        <div class="log-panel hidden" id="log-panel">
+        <!-- Log Drawer Overlay -->
+        <div class="log-drawer-overlay" id="log-overlay" onclick="closeLogPanel()"></div>
+
+        <!-- Log Panel Drawer -->
+        <div class="log-panel" id="log-panel">
             <div class="log-panel__header">
                 <div class="log-panel__title">
                     <span id="log-title">输出日志</span>
@@ -1053,7 +1135,7 @@
         let pendingTeardownHost = '';
         let serverConnected = false;
 
-        const OFFLINE_MSG = '后端未运行。请先执行: srg web';
+        const OFFLINE_MSG = '后端未运行。请先 cd 到 srg-cli 目录后执行: ./srg web';
 
         // ================================================================
         // API Calls
@@ -1085,12 +1167,7 @@
                 renderStats();
             } catch (e) {
                 serverConnected = false;
-                // Fallback: demo data for design preview
-                hosts = [
-                    { name: 'dev-server', port: 7890, status: 'connected' },
-                    { name: 'gpu-cluster', port: 7890, status: 'connected' },
-                    { name: 'staging-box', port: 1080, status: 'offline' },
-                ];
+                hosts = [];
                 renderBanner();
                 renderHosts();
                 renderStats();
@@ -1251,13 +1328,23 @@
         // Log Panel
         // ================================================================
         function showLog(title) {
-            document.getElementById('log-panel').classList.remove('hidden');
+            document.getElementById('log-overlay').classList.add('active');
+            document.getElementById('log-panel').classList.add('active');
             document.getElementById('log-title').textContent = title;
-            document.getElementById('log-body').innerHTML = '';
+            document.getElementById('log-body').innerHTML = `
+                <div class="log-loading" id="log-loading">
+                    <div class="log-loading__bar"></div>
+                    <div class="log-loading__text">正在执行命令，请稍候...</div>
+                </div>
+            `;
         }
 
         function appendLog(text, type = '') {
             const el = document.getElementById('log-body');
+            // Remove loading indicator on first real output
+            const loader = document.getElementById('log-loading');
+            if (loader) loader.remove();
+
             // Colorize output
             const colored = text
                 .replace(/✓/g, '<span class="log-line--pass">✓</span>')
@@ -1279,7 +1366,8 @@
         }
 
         function closeLogPanel() {
-            document.getElementById('log-panel').classList.add('hidden');
+            document.getElementById('log-overlay').classList.remove('active');
+            document.getElementById('log-panel').classList.remove('active');
         }
 
         // ================================================================

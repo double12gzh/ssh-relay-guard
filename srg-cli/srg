@@ -210,17 +210,18 @@ $host_marker_end
 EOF
     chmod 600 "$SSH_CONFIG_SRG"
 
-    # 1d. 确保主配置中有 Include 行（只加一行，放在文件顶部）
+    # 1d. 确保主配置中有 Include 行（将其加入到文件末尾，以防覆盖用户自有 ControlMaster 等高优配置）
     touch "$SSH_CONFIG"
     chmod 600 "$SSH_CONFIG"
-    if ! grep -qF "$INCLUDE_LINE" "$SSH_CONFIG" 2>/dev/null; then
-        local tmp_config
-        tmp_config=$(mktemp)
-        echo "$INCLUDE_LINE" > "$tmp_config"
-        cat "$SSH_CONFIG" >> "$tmp_config"
-        mv "$tmp_config" "$SSH_CONFIG"
-        chmod 600 "$SSH_CONFIG"
+    
+    # 删除旧的 Include 行 (如果存在)，重新追加到文件最末尾
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "/^${INCLUDE_LINE}$/d" "$SSH_CONFIG"
+    else
+        sed -i "/^${INCLUDE_LINE}$/d" "$SSH_CONFIG"
     fi
+    echo "" >> "$SSH_CONFIG"
+    echo "$INCLUDE_LINE" >> "$SSH_CONFIG"
 
     info "SSH 配置已写入 $SSH_CONFIG_SRG"
     dim "主配置仅添加: $INCLUDE_LINE"
@@ -398,16 +399,21 @@ cmd_status() {
         err "主配置缺少 Include config.srg"
     fi
 
-    local socket
-    socket=$(ls "$SSH_SOCKET_DIR"/*"$remote_host"* 2>/dev/null | head -1 || true)
-    if [ -n "$socket" ]; then
-        info "SSH ControlMaster 活跃: $(basename "$socket")"
+    if ssh -O check "$remote_host" 2>/dev/null; then
+        info "SSH 已建立复用连接主进程 (Master running)"
     else
-        dim "SSH ControlMaster 无活跃连接"
+        dim "SSH 无活跃的复用连接主进程"
     fi
 
     step "远程"
-    run_remote_verify "$remote_host" "$DEFAULT_PROXY_PORT"
+    
+    # 尝试从本地 config.srg 提取该主机原本配置的端口
+    local proxy_port
+    proxy_port=$(sed -n "/^# --- SRG:${remote_host} ---$/,/^# --- SRG:${remote_host} END ---$/p" "$SSH_CONFIG_SRG" 2>/dev/null \
+        | grep "RemoteForward" | awk '{print $2}' | head -1 || true)
+    proxy_port="${proxy_port:-$DEFAULT_PROXY_PORT}"
+    
+    run_remote_verify "$remote_host" "$proxy_port" || err "远程验证失败 (请检查 SSH 连接)"
 }
 
 # ============================================================================
@@ -456,11 +462,22 @@ cmd_teardown() {
         dim "无 SRG 配置需要清理"
     fi
 
-    step "清理远程配置"
-    scp -q "$REMOTE_SCRIPTS_DIR/srg-teardown-remote" "$remote_host:/tmp/srg-teardown-remote"
-    ssh "$remote_host" "bash /tmp/srg-teardown-remote '$SRG_MARKER' '$SRG_MARKER_END' && rm -f /tmp/srg-teardown-remote"
+    step "关闭 SSH 复用连接"
+    if ssh -O check "$remote_host" 2>/dev/null; then
+        ssh -O exit "$remote_host" 2>/dev/null && info "已关闭 ControlMaster 连接" || dim "关闭 ControlMaster 失败 (可能已断开)"
+    else
+        dim "无活跃的 ControlMaster 连接"
+    fi
 
-    info "远程配置已清理"
+    step "清理远程配置"
+    if scp -q "$REMOTE_SCRIPTS_DIR/srg-teardown-remote" "$remote_host:/tmp/srg-teardown-remote" 2>/dev/null; then
+        ssh "$remote_host" "bash /tmp/srg-teardown-remote '$SRG_MARKER' '$SRG_MARKER_END' && rm -f /tmp/srg-teardown-remote" 2>/dev/null \
+            && info "远程配置已清理" \
+            || err "远程清理脚本执行失败"
+    else
+        dim "无法连接远程，跳过远程清理 (如需手动清理，请在远程执行 srg-teardown-remote)"
+    fi
+
     echo ""
     echo -e "${GREEN}${BOLD}卸载完成${NC}"
     echo -e "  请 ${BOLD}Reload Window${NC} 让 LS 恢复生效"
@@ -485,12 +502,12 @@ cmd_doctor() {
             info "config.srg 中包含 $remote_host 的配置"
         else
             err "config.srg 存在但不包含 $remote_host"
-            dim "→ 运行: srg setup $remote_host"
+            dim "→ 运行: ./srg setup $remote_host"
             local_ok=false
         fi
     else
         err "config.srg 不存在"
-        dim "→ 运行: srg setup $remote_host"
+        dim "→ 运行: ./srg setup $remote_host"
         local_ok=false
     fi
 
@@ -499,14 +516,14 @@ cmd_doctor() {
         info "~/.ssh/config 已 Include config.srg"
     else
         err "~/.ssh/config 缺少 Include config.srg"
-        dim "→ 运行: srg setup $remote_host"
+        dim "→ 运行: ./srg setup $remote_host"
         local_ok=false
     fi
 
     # 本地代理端口
     local proxy_port
-    proxy_port=$(grep -A2 "^# --- SRG:${remote_host} ---" "$SSH_CONFIG_SRG" 2>/dev/null \
-        | grep "RemoteForward" | awk '{print $2}' | head -1)
+    proxy_port=$(sed -n "/^# --- SRG:${remote_host} ---$/,/^# --- SRG:${remote_host} END ---$/p" "$SSH_CONFIG_SRG" 2>/dev/null \
+        | grep "RemoteForward" | awk '{print $2}' | head -1 || true)
     proxy_port="${proxy_port:-$DEFAULT_PROXY_PORT}"
 
     if lsof -i tcp:"$proxy_port" -sTCP:LISTEN &>/dev/null 2>&1; then
@@ -518,12 +535,10 @@ cmd_doctor() {
     fi
 
     # ControlMaster
-    local socket
-    socket=$(ls "$SSH_SOCKET_DIR"/*"$remote_host"* 2>/dev/null | head -1 || true)
-    if [ -n "$socket" ]; then
-        info "ControlMaster socket 活跃: $(basename "$socket")"
+    if ssh -O check "$remote_host" 2>/dev/null; then
+        info "SSH 复用连接主进程活跃"
     else
-        dim "ControlMaster 无活跃连接 (首次 SSH 后会创建)"
+        dim "SSH 复用连接主进程不活跃 (首次连接后会创建)"
     fi
 
     # --- SSH 连接测试 ---
@@ -541,8 +556,8 @@ cmd_doctor() {
 
     # --- 远程检查 ---
     step "远程环境诊断"
-    scp -q "$REMOTE_SCRIPTS_DIR/srg-diagnose" "$remote_host:/tmp/srg-diagnose"
-    ssh "$remote_host" "bash /tmp/srg-diagnose '$proxy_port' && rm -f /tmp/srg-diagnose"
+    scp -q "$REMOTE_SCRIPTS_DIR/srg-diagnose" "$remote_host:/tmp/srg-diagnose" || { err "无法上传诊断脚本"; return 1; }
+    ssh "$remote_host" "bash /tmp/srg-diagnose '$proxy_port' && rm -f /tmp/srg-diagnose" || err "远程诊断执行失败"
 }
 
 # 命令：list — 列出已配置的主机
@@ -574,15 +589,12 @@ cmd_list() {
 
         # 从 config.srg 中提取端口
         local port
-        port=$(grep -A2 "^# --- SRG:${host} ---" "$SSH_CONFIG_SRG" \
-            | grep "RemoteForward" | awk '{print $2}' | head -1)
+        port=$(sed -n "/^# --- SRG:${host} ---$/,/^# --- SRG:${host} END ---$/p" "$SSH_CONFIG_SRG" \
+            | grep "RemoteForward" | awk '{print $2}' | head -1 || true)
         port="${port:-?}"
 
-        # 检查 ControlMaster socket 是否活跃
-        local socket
-        socket=$(ls "$SSH_SOCKET_DIR"/*"$host"* 2>/dev/null | head -1 || true)
-
-        if [ -n "$socket" ]; then
+        # 检查 ControlMaster socket 是否活跃 (通过 ssh -O check)
+        if ssh -O check "$host" 2>/dev/null; then
             echo -e "  ${GREEN}●${NC} ${BOLD}$host${NC}  端口:$port  ${GREEN}已连接${NC}"
         else
             echo -e "  ${DIM}○${NC} ${BOLD}$host${NC}  端口:$port  ${DIM}未连接${NC}"
@@ -634,14 +646,18 @@ main() {
             echo "  srg-status               查看代理状态"
             echo ""
             echo "示例:"
-            echo "  srg setup my-server"
-            echo "  srg setup my-server 1080"
-            echo "  srg list"
-            echo "  srg status my-server"
-            echo "  srg doctor my-server"
-            echo "  srg teardown my-server"
+            echo "  cd /path/to/ssh-relay-guard/srg-cli"
+            echo "  ./srg setup my-server"
+            echo "  ./srg setup my-server 1080"
+            echo "  ./srg list"
+            echo "  ./srg status my-server"
+            echo "  ./srg doctor my-server"
+            echo "  ./srg teardown my-server"
+            echo ""
+            echo "提示: srg 未加入 PATH，请先 cd 到 srg-cli 目录后使用 ./srg 执行，"
+            echo "  或将 srg-cli 目录加入 PATH: export PATH=\"\$PATH:$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)\""
             ;;
-        *) err "未知命令: $cmd"; echo "运行 'srg help' 查看帮助"; exit 1 ;;
+        *) err "未知命令: $cmd"; echo "运行 './srg help' 查看帮助"; exit 1 ;;
     esac
 }
 

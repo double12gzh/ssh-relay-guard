@@ -1,4 +1,7 @@
 import * as net from 'net';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs/promises';
 import * as vscode from 'vscode';
 
 /**
@@ -30,4 +33,19 @@ export function isPortReachable(host: string, port: number, timeoutMs = 2000): P
  */
 export function isRunningLocally(): boolean {
     return !vscode.env.remoteName;
+}
+
+/**
+ * Check if SRG setup has been completed on the remote server.
+ * Detects prior setup by checking for ~/bin/srg-on (deployed by setup-proxy.sh).
+ * Returns true if setup was completed, false if this is a first run.
+ */
+export async function isSrgSetupCompleted(): Promise<boolean> {
+    try {
+        const srgOnPath = path.join(os.homedir(), 'bin', 'srg-on');
+        await fs.access(srgOnPath);
+        return true; // srg-on exists → setup completed
+    } catch {
+        return false; // srg-on missing → not set up
+    }
 }

@@ -7,8 +7,8 @@ import { promisify } from 'util';
 import { buildInstallScript, buildRestoreScript } from '../setup/remoteInstaller';
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
-import { isPortReachable, isRunningLocally } from '../utils/portProbe';
-import { updateForHost, readStatus, readAllStatus } from './sshConfigManager';
+import { isPortReachable, isRunningLocally, isSrgSetupCompleted } from '../utils/portProbe';
+import { updateForHost, readStatus, readAllStatus, getSSHSocketDir } from './sshConfigManager';
 import { isMgraftcpRunning, getMonitoredProcess, killTargetProcess, promptReloadWindow } from '../utils/processUtils';
 
 const execAsync = promisify(exec);
@@ -43,6 +43,12 @@ export class ProxyOrchestrator implements vscode.Disposable {
 		this.context.subscriptions.push(this.dashboardManager);
 
 		this.registerCommonCommands();
+
+		// Remote: show spinning icon immediately, before any async work or auto-refresh
+		if (!this.isLocal) {
+			this.dashboardManager.setVerifying(true);
+		}
+
 		this.dashboardManager.startAutoRefresh();
 
 		if (this.isLocal) {
@@ -99,11 +105,11 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				const hostRemotePort = status.hostData.get(host)?.port ?? rp;
 				await updateForHost(host, hostRemotePort, lp, enabled, (m) => this.log(m));
 			}
-			this.dashboardManager.updateSSHConfigStatus(enabled, rp);
+			this.dashboardManager.updateSSHConfigStatus(enabled, rp, status.hosts);
 		});
 
 		const initialStatus = await readStatus();
-		this.dashboardManager.updateSSHConfigStatus(initialStatus.enabled, initialStatus.port);
+		this.dashboardManager.updateSSHConfigStatus(initialStatus.enabled, initialStatus.port, initialStatus.hosts);
 
 		if (enable && !await isPortReachable('127.0.0.1', localPort)) {
 			vscode.window.showWarningMessage(
@@ -127,7 +133,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 						const hostRemotePort = status.hostData.get(host)?.port ?? rp;
 						await updateForHost(host, hostRemotePort, lp, enabled, (m) => this.log(m));
 					}
-					this.dashboardManager.updateSSHConfigStatus(enabled, rp);
+					this.dashboardManager.updateSSHConfigStatus(enabled, rp, status.hosts);
 					await this.dashboardManager.refreshStatus();
 				}
 			})
@@ -145,9 +151,44 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				const lp = this.configService.localProxyPort;
 				const rp = this.configService.remoteProxyPort;
 				await updateForHost(hostname, rp, lp, true, (m) => this.log(m));
-				this.dashboardManager.updateSSHConfigStatus(true, rp);
+				this.dashboardManager.updateSSHConfigStatus(true, rp, [hostname]);
 				await this.dashboardManager.refreshStatus();
-				vscode.window.showInformationMessage(`SSH forwarding configured for ${hostname}`);
+
+				// Check if there's an existing ControlMaster socket for this host.
+				// Must use `ssh -O check` (not our socket dir) because the user's existing
+				// SSH config may define a different ControlPath that takes precedence.
+				// ssh -O check does NOT establish a new connection — it only checks the socket.
+				let hasExistingSocket = false;
+				try {
+					const { stdout } = await execAsync(
+						`ssh -O check ${hostname} 2>&1 || true`
+					);
+					hasExistingSocket = stdout.toLowerCase().includes('running');
+				} catch { /* no ControlMaster configured or check failed */ }
+
+				if (hasExistingSocket) {
+					const action = await vscode.window.showWarningMessage(
+						`SSH config for "${hostname}" saved (port ${rp}).\n\n` +
+						`⚠️ Detected an existing SSH connection. RemoteForward won't take effect until you reconnect.\n` +
+						`Close current connection and reconnect to activate the tunnel?`,
+						'Close & Reconnect',
+						'OK, I\'ll reconnect later'
+					);
+					if (action === 'Close & Reconnect') {
+						await this.reconnectSSHTunnel(hostname, rp);
+					}
+				} else {
+					// No existing socket — try to establish one directly
+					const action = await vscode.window.showInformationMessage(
+						`SSH config for "${hostname}" saved (port ${rp}). ` +
+						`Establish SSH tunnel now?`,
+						'Connect Now',
+						'Later'
+					);
+					if (action === 'Connect Now') {
+						await this.reconnectSSHTunnel(hostname, rp);
+					}
+				}
 			}),
 
 			vscode.commands.registerCommand('ssh-relay-guard.disableForwarding', async () => {
@@ -162,16 +203,28 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				});
 				if (!hostname) { return; }
 
+				// Warn: closing ControlMaster will terminate active remote sessions
+				const confirm = await vscode.window.showWarningMessage(
+					`This will disconnect the SSH tunnel for "${hostname}" and may terminate any active remote VS Code sessions to this host.\n\nContinue?`,
+					{ modal: true },
+					'Yes, Disconnect',
+					'Cancel'
+				);
+				if (confirm !== 'Yes, Disconnect') { return; }
+
+				// Close ControlMaster socket first (while config still has ControlPath)
+				await this.closeControlMasterSocket(hostname);
+
 				await updateForHost(hostname, 0, 0, false, (m) => this.log(m));
 				const newStatus = await readStatus();
-				this.dashboardManager.updateSSHConfigStatus(newStatus.enabled, newStatus.port);
+				this.dashboardManager.updateSSHConfigStatus(newStatus.enabled, newStatus.port, newStatus.hosts);
 				await this.dashboardManager.refreshStatus();
-				vscode.window.showInformationMessage(`SSH forwarding removed for ${hostname}`);
+				vscode.window.showInformationMessage(`SSH forwarding removed for host: ${hostname}`);
 			}),
 
 			vscode.commands.registerCommand('ssh-relay-guard.tunnelStatus', async () => {
 				const status = await readStatus();
-				this.dashboardManager.updateSSHConfigStatus(status.enabled, status.port);
+				this.dashboardManager.updateSSHConfigStatus(status.enabled, status.port, status.hosts);
 				if (status.hosts && status.hosts.length > 0) {
 					vscode.window.showInformationMessage(
 						`Forwarding configured for: ${status.hosts.join(', ')} (port ${status.port})`
@@ -233,9 +286,12 @@ export class ProxyOrchestrator implements vscode.Disposable {
 		}
 
 		const inspected = httpConfig.inspect<string>('proxy');
-		if (inspected?.globalValue && inspected.globalValue !== '' && !inspected.globalValue.includes(String(proxyPort))) {
-			this.log(`http.proxy has user-configured value "${inspected.globalValue}", not overriding`);
-			return;
+		if (inspected?.globalValue && inspected.globalValue !== '') {
+			const isLocalOrHost = inspected.globalValue.includes('127.0.0.1') || inspected.globalValue.includes('localhost') || inspected.globalValue.includes(proxyHost);
+			if (!isLocalOrHost) {
+				this.log(`http.proxy has external user-configured value "${inspected.globalValue}", not overriding`);
+				return;
+			}
 		}
 
 		try {
@@ -254,6 +310,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 
 		if (process.platform !== 'linux') {
 			this.log(`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`);
+			this.dashboardManager.setVerifying(false);
 			return;
 		}
 
@@ -271,8 +328,6 @@ export class ProxyOrchestrator implements vscode.Disposable {
 		});
 
 		this.log(`Remote Proxy: ${remoteHost}:${remotePort} (${proxyType})`);
-
-		await this.dashboardManager.refreshStatus();
 
 		this.log(`Extension path: ${extensionPath}`);
 		this.log('Auto-running setup script...');
@@ -325,29 +380,36 @@ export class ProxyOrchestrator implements vscode.Disposable {
 			})
 		);
 
+		// Run full startup connectivity check (non-blocking)
+		// Status bar stays spinning until this completes, then shows the real result
 		const showStatusOnStartup = this.configService.showStatusOnStartup;
 		if (showStatusOnStartup) {
-			setTimeout(async () => {
-				await this.showStartupStatus(remoteHost, remotePort);
-			}, 2000);
+			this.runFullStartupCheck(remoteHost, remotePort);
+		} else {
+			await this.dashboardManager.refreshStatus();
+			this.dashboardManager.setVerifying(false);
+		}
+	}
+
+	/**
+	 * Run the full startup connectivity check (port + curl), then finalize status bar.
+	 * Runs as a fire-and-forget async — commands are already registered, extension is active.
+	 */
+	private async runFullStartupCheck(remoteHost: string, remotePort: number): Promise<void> {
+		try {
+			await this.showStartupStatus(remoteHost, remotePort);
+		} catch (err) {
+			this.log(`Startup check error: ${err}`);
+		} finally {
+			// Now we know the real state — finalize the status bar
+			await this.dashboardManager.refreshStatus();
+			this.dashboardManager.setVerifying(false);
 		}
 	}
 
 	// ── First-Run Detection ────────────────────────────────────────────
 
-	/**
-	 * Check if this is the first time SRG is running on this remote server.
-	 * Detects prior setup by checking for ~/bin/srg-on (deployed by setup-proxy.sh).
-	 */
-	private async isFirstRun(): Promise<boolean> {
-		try {
-			const srgOnPath = path.join(os.homedir(), 'bin', 'srg-on');
-			await fs.access(srgOnPath);
-			return false; // srg-on exists → not first run
-		} catch {
-			return true; // srg-on missing → first run
-		}
-	}
+	// isFirstRun() is now delegated to the shared isSrgSetupCompleted() in portProbe.ts
 
 	/**
 	 * Show a friendly getting-started guide for first-time users.
@@ -361,7 +423,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 			'The proxy tunnel is not yet established. ' +
 			'To complete the setup, please follow these steps:\n\n' +
 			'Step 1: Install SRG extension on your LOCAL machine\n' +
-			'Step 2: In the local SRG panel, run "Enable Port Forwarding" for this host\n' +
+			'Step 2: In the local SRG panel, run "Add Host Forwarding" for this host\n' +
 			'Step 3: Reconnect to this remote server — the tunnel will be established automatically\n\n' +
 			'After reconnecting, SRG will auto-configure the proxy for you.';
 
@@ -497,17 +559,16 @@ export class ProxyOrchestrator implements vscode.Disposable {
 			let actions: string[] = [];
 
 			const lsActuallyUsingProxy = lsProcess?.isUsingProxy ?? false;
-			const lsIsPersistent = lsProcess?.isPersistent ?? false;
-			const lsNeedsRestart = lsProcess && lsIsPersistent && !lsActuallyUsingProxy;
+			const lsNeedsRestart = lsProcess && !lsActuallyUsingProxy;
 
 			if (proxyReachable && lsActuallyUsingProxy) {
 				message = `✅ Proxy active (${proxyHost}:${proxyPort})`;
 			} else if (proxyReachable && lsNeedsRestart) {
-				this.log('Startup: Detected persistent_mode LS not using proxy, auto-fixing...');
+				this.log(`Startup: LS running (PID ${lsProcess!.pid}) but not using proxy, auto-fixing...`);
 				const killed = await killTargetProcess((m) => this.log(m));
 				if (killed) {
 					message = `🔄 Language Server restarted to enable proxy. Reloading...`;
-					actions = ['Reload Now'];
+					actions = [];
 					setTimeout(() => {
 						vscode.commands.executeCommand('workbench.action.reloadWindow');
 					}, 2000);
@@ -519,8 +580,8 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				message = `⚠️ Proxy configured but not active. Reload to enable.`;
 				actions = ['Reload Now', 'Dismiss'];
 			} else if (!proxyReachable) {
-				const firstRun = await this.isFirstRun();
-				if (firstRun) {
+				const setupDone = await isSrgSetupCompleted();
+				if (!setupDone) {
 					await this.showFirstRunGuide();
 				} else {
 					this.log('Proxy not reachable — SSH tunnel may not be established');
@@ -595,10 +656,11 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				this.log('Setup: New configuration applied');
 
 				const lsProcess = await getMonitoredProcess();
-				if (lsProcess && lsProcess.isPersistent) {
-					this.log('Setup: LS is in persistent_mode, killing to apply new configuration');
-					await this.killLSAndPromptReload('Proxy updated. Language Server restarted. Please reload the window to reconnect.');
+				if (lsProcess) {
+					this.log(`Setup: LS running (PID ${lsProcess.pid}, persistent=${lsProcess.isPersistent}), killing to apply wrapper`);
+					await this.killLSAndAutoReload();
 				} else {
+					this.log('Setup: LS not running, will start with proxy on next use');
 					promptReloadWindow(
 						'Proxy configured. Reload window to apply changes to the language server.'
 					);
@@ -612,17 +674,8 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				const lsIsPersistent = lsProcess?.isPersistent ?? false;
 
 				if (lsProcess && !lsActuallyUsingProxy) {
-					this.log('Setup: Proxy configured but LS not using it');
-
-					if (lsIsPersistent) {
-						this.log('Setup: Language Server is in persistent_mode, killing process to force restart through wrapper');
-						await this.killLSAndPromptReload('Language Server restarted to enable proxy. Please reload the window to reconnect.');
-					} else {
-						this.log('Setup: Prompting reload');
-						promptReloadWindow(
-							'Proxy is configured but not active. Reload window to enable proxy for the language server.'
-						);
-					}
+					this.log(`Setup: Proxy configured but LS not using it (PID ${lsProcess.pid}, persistent=${lsIsPersistent}), auto-fixing...`);
+					await this.killLSAndAutoReload();
 				} else if (lsActuallyUsingProxy) {
 					this.log('Setup: Proxy is active, no reload needed');
 				} else {
@@ -641,13 +694,18 @@ export class ProxyOrchestrator implements vscode.Disposable {
 	}
 
 	/**
-	 * Kill LS process and prompt reload. Shows a fallback warning if kill fails.
-	 * Extracted to avoid repeating the same kill → prompt/warn pattern.
+	 * Kill LS process and auto-reload window.
+	 * If kill succeeds, automatically reloads after 2s.
+	 * If kill fails, shows manual instructions.
 	 */
-	private async killLSAndPromptReload(successMessage: string): Promise<void> {
+	private async killLSAndAutoReload(): Promise<void> {
 		const killed = await killTargetProcess((m) => this.log(m));
 		if (killed) {
-			promptReloadWindow(successMessage);
+			this.log('LS killed, auto-reloading window in 2s...');
+			vscode.window.showInformationMessage('🔄 Language Server restarted to enable proxy. Reloading...');
+			setTimeout(() => {
+				vscode.commands.executeCommand('workbench.action.reloadWindow');
+			}, 2000);
 		} else {
 			vscode.window.showWarningMessage(
 				'Proxy configured but Language Server needs restart. ' +
@@ -659,6 +717,119 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				}
 			});
 		}
+	}
+
+	// ── ControlMaster Management ───────────────────────────────────────
+
+	/**
+	 * Close the ControlMaster socket for a given host, immediately
+	 * tearing down the SSH tunnel and any active port forwards.
+	 */
+	private async closeControlMasterSocket(hostname: string): Promise<void> {
+		const socketDir = getSSHSocketDir();
+
+		try {
+			const files = await fs.readdir(socketDir);
+			const matchingFiles = files.filter(f => f.includes(hostname));
+
+			if (matchingFiles.length === 0) {
+				this.log(`No ControlMaster socket found for ${hostname}`);
+				return;
+			}
+
+			for (const socketFile of matchingFiles) {
+				const socketPath = path.join(socketDir, socketFile);
+				try {
+					// Graceful exit via SSH multiplex protocol
+					await execAsync(`ssh -O exit -o ControlPath="${socketPath}" ${hostname} 2>/dev/null`);
+					this.log(`Closed ControlMaster socket: ${socketFile}`);
+				} catch {
+					// Fallback: force-remove the stale socket file
+					try {
+						await fs.unlink(socketPath);
+						this.log(`Removed stale socket file: ${socketFile}`);
+					} catch { /* socket may already be gone */ }
+				}
+			}
+		} catch (error) {
+			this.log(`ControlMaster cleanup skipped: ${error}`);
+		}
+	}
+
+	/**
+	 * Reconnect SSH tunnel: close existing socket, create new background
+	 * connection with RemoteForward, and verify the tunnel is working.
+	 */
+	private async reconnectSSHTunnel(hostname: string, port: number): Promise<void> {
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: `SSH Tunnel: ${hostname}`,
+				cancellable: false,
+			},
+			async (progress) => {
+				// Step 1: Close existing socket
+				progress.report({ message: 'Closing existing connection...' });
+				await this.closeControlMasterSocket(hostname);
+				this.log(`reconnectSSHTunnel: closed existing socket for ${hostname}`);
+
+				// Brief pause to let socket fully close
+				await new Promise(resolve => setTimeout(resolve, 500));
+
+				// Step 2: Establish new background SSH connection
+				progress.report({ message: 'Establishing new tunnel...' });
+				try {
+					// -f = fork to background after auth
+					// -N = no remote command (just tunnel)
+					// -o BatchMode=yes = no password prompts
+					// -o ConnectTimeout=10 = timeout
+					// -o ServerAliveInterval=30 = keep alive
+					// Blindly enforce RemoteForward (-R) via command line parameter to override
+					// any ~/.ssh/config misconfigurations or ordering issues that might skip config.srg
+					await execAsync(
+						`ssh -fN -R ${port}:127.0.0.1:${port} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 ${hostname}`,
+						{ timeout: 15000 }
+					);
+					this.log(`reconnectSSHTunnel: background SSH connection established for ${hostname}`);
+				} catch (error) {
+					const err = error as { message?: string; stderr?: string };
+					this.log(`reconnectSSHTunnel: SSH connection failed: ${err.message || error}`);
+					vscode.window.showErrorMessage(
+						`Failed to connect to "${hostname}". ` +
+						`Ensure SSH key auth is configured (BatchMode requires key-based auth). ` +
+						`Try manually: ssh -fN -R ${port}:127.0.0.1:${port} ${hostname}`
+					);
+					return;
+				}
+
+				// Step 3: Verify tunnel
+				progress.report({ message: 'Verifying tunnel...' });
+				await new Promise(resolve => setTimeout(resolve, 1000));
+
+				try {
+					const { stdout } = await execAsync(
+						`ssh -O check -o BatchMode=yes ${hostname} 2>&1 || true`
+					);
+					if (stdout.toLowerCase().includes('running')) {
+						this.log(`reconnectSSHTunnel: ControlMaster verified running for ${hostname}`);
+						await this.dashboardManager.refreshStatus();
+						vscode.window.showInformationMessage(
+							`✅ SSH tunnel to "${hostname}" established! RemoteForward :${port} is active.`
+						);
+					} else {
+						this.log(`reconnectSSHTunnel: ControlMaster not running after connect`);
+						vscode.window.showWarningMessage(
+							`SSH connected but ControlMaster not detected. ` +
+							`Tunnel may not persist. Try: ssh -fN -R ${port}:127.0.0.1:${port} ${hostname}`
+						);
+					}
+				} catch {
+					vscode.window.showWarningMessage(
+						`Cannot verify tunnel status. Try manually: ssh -O check ${hostname}`
+					);
+				}
+			}
+		);
 	}
 
 	// ── Lifecycle ──────────────────────────────────────────────────────

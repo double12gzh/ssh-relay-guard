@@ -51,16 +51,17 @@ SRG 采用**本地 + 远程双端部署**模式，两端各有分工：
 
 1. 在本地 Antigravity 的扩展市场中搜索并安装 **SSH Relay Guard**
 2. 打开设置，将 `localProxyPort` 设为你本地代理端口（默认 `7890`）
+3. 运行命令 `SSH Relay Guard: Add Host Forwarding`，输入远程主机名（与 `~/.ssh/config` 中一致）
 
 **远程端**
 
-3. 使用 Antigravity 通过 SSH 连接远程服务器
-4. 在远程的扩展列表中，再次安装 **SSH Relay Guard**
-5. 根据提示重启远程窗口（可能需要多次重启）
+4. 使用 Antigravity 通过 SSH 连接远程服务器
+5. 在远程的扩展列表中，再次安装 **SSH Relay Guard**
+6. 根据提示重启远程窗口（可能需要多次重启）
 
 **验证**
 
-6. 打开 SRG 面板 → 运行「健康检查」→ 所有项目显示 ✅ 即表示配置成功
+7. 打开 SRG 面板 → 运行「健康检查」→ 所有项目显示 ✅ 即表示配置成功
 
 ---
 
@@ -82,8 +83,8 @@ SRG 采用**本地 + 远程双端部署**模式，两端各有分工：
 | 命令 | 说明 |
 |---|---|
 | `SSH Relay Guard: Show Dashboard` | 打开状态仪表板 |
-| `SSH Relay Guard: Enable Port Forwarding` | 为指定主机配置 SSH 隧道 |
-| `SSH Relay Guard: Disable Port Forwarding` | 移除指定主机的 SSH 隧道 |
+| `SSH Relay Guard: Add Host Forwarding` | 为指定主机配置 SSH 隧道 |
+| `SSH Relay Guard: Remove Host Forwarding` | 移除指定主机的 SSH 隧道 |
 | `SSH Relay Guard: Run Health Check` | 运行完整诊断报告 |
 | `SSH Relay Guard: Setup Remote Environment` | 安装语言服务包装脚本 |
 | `SSH Relay Guard: Rollback Remote Environment` | 恢复原始语言服务 |
