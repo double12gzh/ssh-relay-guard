@@ -76,6 +76,7 @@ export async function updateForHost(
 				`Host ${hostname}`,
 				`    # Reverse tunnel: remote ${remotePort} → local ${localPort}`,
 				`    RemoteForward ${remotePort} 127.0.0.1:${localPort}`,
+				'    # Keep "no": VS Code Remote uses this config; explicit tunnel commands use ExitOnForwardFailure=yes',
 				'    ExitOnForwardFailure no',
 				'    # Connection multiplexing: tunnel persists after window close',
 				'    ControlMaster auto',

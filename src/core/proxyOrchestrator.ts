@@ -519,6 +519,9 @@ export class ProxyOrchestrator implements vscode.Disposable {
 			}
 			this.log('');
 
+			let httpOk = false;
+			let socks5Ok = false;
+
 			if (proxyReachable) {
 				const currentProxyType = this.configService.proxyType;
 
@@ -528,7 +531,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				try {
 					const { stdout } = await execAsync(httpCmd, { timeout: 15000 });
 					const httpCode = stdout.trim();
-					const httpOk = httpCode === '200' || httpCode === '301' || httpCode === '302';
+					httpOk = httpCode === '200' || httpCode === '301' || httpCode === '302';
 					const marker = currentProxyType === 'http' ? ' ← Current' : '';
 					this.log(`  Result: HTTP ${httpCode} ${httpOk ? '✓ OK' : '✗ Failed'}${marker}`);
 				} catch {
@@ -542,7 +545,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				try {
 					const { stdout } = await execAsync(socks5Cmd, { timeout: 15000 });
 					const httpCode = stdout.trim();
-					const socks5Ok = httpCode === '200' || httpCode === '301' || httpCode === '302';
+					socks5Ok = httpCode === '200' || httpCode === '301' || httpCode === '302';
 					const marker = currentProxyType === 'socks5' ? ' ← Current' : '';
 					this.log(`  Result: HTTP ${httpCode} ${socks5Ok ? '✓ OK' : '✗ Failed'}${marker}`);
 				} catch {
@@ -551,6 +554,8 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				}
 				this.log('');
 			}
+
+			const proxyFunctional = httpOk || socks5Ok;
 
 			this.log('==========================================');
 			this.log('');
@@ -561,7 +566,15 @@ export class ProxyOrchestrator implements vscode.Disposable {
 			const lsActuallyUsingProxy = lsProcess?.isUsingProxy ?? false;
 			const lsNeedsRestart = lsProcess && !lsActuallyUsingProxy;
 
-			if (proxyReachable && lsActuallyUsingProxy) {
+			if (proxyReachable && !proxyFunctional) {
+				// Port is reachable but neither HTTP nor SOCKS5 proxy test succeeded.
+				// This usually means the port is occupied by another process,
+				// or the local proxy is not running / not forwarding traffic.
+				this.log('Port is reachable but proxy connectivity test failed — port may be occupied by another process or local proxy not working');
+				message = `⚠️ Port ${proxyPort} is reachable but proxy is not responding. ` +
+					`The port may be occupied by another process, or the local proxy may not be running.`;
+				actions = ['Run Health Check', 'Open SRG Panel', 'Dismiss'];
+			} else if (proxyReachable && lsActuallyUsingProxy) {
 				message = `✅ Proxy active (${proxyHost}:${proxyPort})`;
 			} else if (proxyReachable && lsNeedsRestart) {
 				this.log(`Startup: LS running (PID ${lsProcess!.pid}) but not using proxy, auto-fixing...`);
@@ -606,6 +619,8 @@ export class ProxyOrchestrator implements vscode.Disposable {
 					}, 1000);
 				} else if (selection === 'Run Health Check') {
 					vscode.commands.executeCommand('ssh-relay-guard.diagnose');
+				} else if (selection === 'Open SRG Panel') {
+					vscode.commands.executeCommand('ssh-relay-guard.showStatusPanel');
 				}
 			} else {
 				vscode.window.showInformationMessage(message);
@@ -787,7 +802,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 					// Blindly enforce RemoteForward (-R) via command line parameter to override
 					// any ~/.ssh/config misconfigurations or ordering issues that might skip config.srg
 					await execAsync(
-						`ssh -fN -R ${port}:127.0.0.1:${port} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 ${hostname}`,
+						`ssh -fN -R ${port}:127.0.0.1:${port} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes ${hostname}`,
 						{ timeout: 15000 }
 					);
 					this.log(`reconnectSSHTunnel: background SSH connection established for ${hostname}`);
@@ -802,20 +817,48 @@ export class ProxyOrchestrator implements vscode.Disposable {
 					return;
 				}
 
-				// Step 3: Verify tunnel
+				// Step 3: Verify tunnel — check ControlMaster + remote port binding
 				progress.report({ message: 'Verifying tunnel...' });
 				await new Promise(resolve => setTimeout(resolve, 1000));
 
 				try {
-					const { stdout } = await execAsync(
+					// 3a. Verify ControlMaster is running
+					const { stdout: checkOut } = await execAsync(
 						`ssh -O check -o BatchMode=yes ${hostname} 2>&1 || true`
 					);
-					if (stdout.toLowerCase().includes('running')) {
-						this.log(`reconnectSSHTunnel: ControlMaster verified running for ${hostname}`);
-						await this.dashboardManager.refreshStatus();
-						vscode.window.showInformationMessage(
-							`✅ SSH tunnel to "${hostname}" established! RemoteForward :${port} is active.`
-						);
+					const controlMasterRunning = checkOut.toLowerCase().includes('running');
+
+					if (controlMasterRunning) {
+						// 3b. Verify RemoteForward by checking if port is actually listening on remote
+						let remotePortVerified = false;
+						try {
+							const { stdout: portOut } = await execAsync(
+								`ssh -o BatchMode=yes ${hostname} "ss -tln 2>/dev/null | grep -q ':${port}' && echo SRG_PORT_OK || echo SRG_PORT_FAIL"`,
+								{ timeout: 5000 }
+							);
+							remotePortVerified = portOut.includes('SRG_PORT_OK');
+						} catch {
+							// ss/grep not available — since ExitOnForwardFailure=yes was used
+							// in Step 2, a successful connection implies the forward is active
+							remotePortVerified = true;
+							this.log('reconnectSSHTunnel: port verification skipped (ss not available), trusting ExitOnForwardFailure=yes');
+						}
+
+						if (remotePortVerified) {
+							this.log(`reconnectSSHTunnel: tunnel verified — ControlMaster running, port ${port} confirmed on remote`);
+							await this.dashboardManager.refreshStatus();
+							vscode.window.showInformationMessage(
+								`✅ SSH tunnel to "${hostname}" established! Port ${port} verified on remote.`
+							);
+						} else {
+							this.log(`reconnectSSHTunnel: ControlMaster running but port ${port} NOT detected on remote`);
+							await this.dashboardManager.refreshStatus();
+							vscode.window.showWarningMessage(
+								`SSH connected but RemoteForward port ${port} not detected on remote. ` +
+								`The port may be occupied by another process. ` +
+								`Check with: ssh ${hostname} "ss -tlnp | grep ${port}"`
+							);
+						}
 					} else {
 						this.log(`reconnectSSHTunnel: ControlMaster not running after connect`);
 						vscode.window.showWarningMessage(

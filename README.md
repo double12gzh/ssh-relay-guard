@@ -30,6 +30,8 @@
 1. On the **local machine**: the extension writes an SSH config block in `~/.ssh/config.srg` that forwards the remote proxy port back to your local proxy.
 2. On the **remote machine**: the extension installs a wrapper script around the language server binary that forces it through `mgraftcp-fakedns`.
 
+📖 **[Manual Reproduction Guide](docs/how-it-works-manual.en.md)** — Explains the minimal commands needed to manually replicate what the extension does, with a full data flow diagram.
+
 ---
 
 ## Installation

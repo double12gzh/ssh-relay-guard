@@ -1,5 +1,7 @@
 # SSH Relay Guard — 核心命令拆解
 
+中文 | **[English](how-it-works-manual.en.md)**
+
 插件的本质：**在本地建立 SSH 反向隧道，在远端用 wrapper 拦截 Language Server 并透过隧道走代理**。
 
 ---

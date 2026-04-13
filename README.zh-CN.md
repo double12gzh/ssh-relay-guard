@@ -30,6 +30,8 @@
 1. **本地端**: 扩展在 `~/.ssh/config.srg` 中写入 SSH 配置块，将远程代理端口转发回本地代理。
 2. **远程端**: 扩展为语言服务二进制文件安装包装脚本，强制其通过 `mgraftcp-fakedns` 代理。
 
+📖 **[核心命令拆解 (Manual Reproduction Guide)](docs/how-it-works-manual.md)** — 详解插件在本地和远端分别执行了哪些操作，以及手动复现所需的最少命令和完整数据流图。
+
 ---
 
 ## 安装方式
