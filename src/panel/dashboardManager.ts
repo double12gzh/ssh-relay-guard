@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { runDiagnostics, DiagnosticReport, generateReportText } from '../diagnostics/healthChecker';
 import { ConnectionMonitor, TrafficStats } from '../traffic/connectionMonitor';
 import { ConfigService } from '../core/configService';
-import { isPortReachable, isSrgSetupCompleted } from '../utils/portProbe';
+import { isPortReachable, isProxyFunctional, isSrgSetupCompleted } from '../utils/portProbe';
+import { killTargetProcess } from '../utils/processUtils';
 import { dict, Lang } from './translations';
 import { buildPanelHtml, buildTrafficHtml, PanelContext, resolveStatusAppearance } from './panelRenderer';
 
@@ -14,6 +15,8 @@ export interface ProxyStatus {
     remoteProxyHost: string;
     localProxyReachable: boolean;
     remoteProxyReachable: boolean;
+    /** True only when the remote port responds like a real proxy (protocol handshake). */
+    remoteProxyFunctional: boolean;
     lastUpdated: Date;
     languageServerConfigured?: boolean;
     remoteSetupCompleted?: boolean;
@@ -62,6 +65,7 @@ export class DashboardManager {
             remoteProxyHost: configService.remoteProxyHost,
             localProxyReachable: false,
             remoteProxyReachable: false,
+            remoteProxyFunctional: false,
             lastUpdated: new Date(),
         };
 
@@ -149,6 +153,18 @@ export class DashboardManager {
             ]);
             this.currentStatus.remoteProxyReachable = reachable;
             this.currentStatus.remoteSetupCompleted = setupDone;
+
+            // If port is reachable, verify it's actually a proxy (not just any service)
+            if (reachable) {
+                const proxyType = this.configService.proxyType as 'http' | 'socks5';
+                this.currentStatus.remoteProxyFunctional = await isProxyFunctional(
+                    this.currentStatus.remoteProxyHost,
+                    this.currentStatus.remoteProxyPort,
+                    proxyType,
+                );
+            } else {
+                this.currentStatus.remoteProxyFunctional = false;
+            }
         }
 
         this.currentStatus.lastUpdated = new Date();
@@ -159,11 +175,12 @@ export class DashboardManager {
     }
 
     updateSSHConfigStatus(enabled: boolean, port?: number, hosts?: string[]): void {
-        this.currentStatus.sshConfigEnabled = enabled;
+        const hasHosts = hosts !== undefined && hosts.length > 0;
+        this.currentStatus.sshConfigEnabled = enabled && hasHosts;
         if (port !== undefined) {
             this.currentStatus.remoteProxyPort = port;
         }
-        this.currentStatus.hasConfiguredHosts = (hosts !== undefined && hosts.length > 0) || enabled;
+        this.currentStatus.hasConfiguredHosts = hasHosts;
         this.currentStatus.configuredHosts = hosts;
         this.currentStatus.lastUpdated = new Date();
         this.updateStatusBar();
@@ -288,6 +305,43 @@ export class DashboardManager {
                     case 'rollback':
                         vscode.commands.executeCommand('ssh-relay-guard.rollback');
                         break;
+                    case 'fixDiag': {
+                        const action = message.action as string;
+                        if (action === 'setup') {
+                            vscode.commands.executeCommand('ssh-relay-guard.setup');
+                        } else if (action === 'enableForwarding') {
+                            vscode.commands.executeCommand('ssh-relay-guard.enableForwarding');
+                        } else if (action === 'killReload') {
+                            await killTargetProcess((m) => console.log('[DashboardManager] ' + m));
+                            setTimeout(() => {
+                                vscode.commands.executeCommand('workbench.action.reloadWindow');
+                            }, 1000);
+                        } else if (action === 'reloadWindow') {
+                            vscode.commands.executeCommand('workbench.action.reloadWindow');
+                        } else if (action.startsWith('switchProtocol:')) {
+                            const newType = action.split(':')[1];
+                            const config = vscode.workspace.getConfiguration('ssh-relay-guard');
+                            await config.update('proxyType', newType, vscode.ConfigurationTarget.Global);
+                            this.configService.reload();
+                            const t = dict[this.currentLang];
+                            vscode.window.showInformationMessage(t.configSaved);
+                            await this.refreshStatus();
+                            this.forceRenderPanel();
+                        } else if (action.startsWith('copyCommand:')) {
+                            const cmd = action.substring('copyCommand:'.length);
+                            await vscode.env.clipboard.writeText(cmd);
+                            const t = dict[this.currentLang];
+                            vscode.window.showInformationMessage(t.copiedToClipboard);
+                        }
+                        break;
+                    }
+                    case 'copyCommand': {
+                        const text = message.text as string;
+                        await vscode.env.clipboard.writeText(text);
+                        const t = dict[this.currentLang];
+                        vscode.window.showInformationMessage(t.copiedToClipboard);
+                        break;
+                    }
                 }
             },
             undefined,
@@ -363,8 +417,10 @@ export class DashboardManager {
         remoteProxyHost?: string;
         enableLocalForwarding?: boolean;
         proxyType?: string;
+        rewriteCloudCodeEndpoint?: boolean;
     }): Promise<void> {
         const oldProxyType = this.configService.proxyType;
+        const oldRewrite = this.configService.rewriteCloudCodeEndpoint;
         const t = dict[this.currentLang];
         // ConfigService is the read cache; writes go through VS Code API
         const config = vscode.workspace.getConfiguration('ssh-relay-guard');
@@ -385,6 +441,9 @@ export class DashboardManager {
             if (newConfig.proxyType !== undefined) {
                 await config.update('proxyType', newConfig.proxyType, vscode.ConfigurationTarget.Global);
             }
+            if (newConfig.rewriteCloudCodeEndpoint !== undefined) {
+                await config.update('rewriteCloudCodeEndpoint', newConfig.rewriteCloudCodeEndpoint, vscode.ConfigurationTarget.Global);
+            }
 
             // Trigger config change callback
             if (this.onConfigChange) {
@@ -393,22 +452,9 @@ export class DashboardManager {
 
             await this.refreshStatus();
 
-            // If proxyType changed, prompt for reload
-            if (newConfig.proxyType !== undefined && newConfig.proxyType !== oldProxyType) {
-                const reloadMsg = this.currentLang === 'zh'
-                    ? `代理类型已更改为 ${newConfig.proxyType.toUpperCase()}。请重新加载窗口以应用更改。`
-                    : `Proxy type changed to ${newConfig.proxyType.toUpperCase()}. Please reload window to apply changes.`;
-                const reloadNow = this.currentLang === 'zh' ? '立即重载' : 'Reload Now';
-                const later = this.currentLang === 'zh' ? '稍后' : 'Later';
-
-                vscode.window.showInformationMessage(reloadMsg, reloadNow, later).then(selection => {
-                    if (selection === reloadNow) {
-                        vscode.commands.executeCommand('workbench.action.reloadWindow');
-                    }
-                });
-            } else {
-                vscode.window.showInformationMessage(t.configSaved);
-            }
+            // Note: If proxyType or rewriteCloudCodeEndpoint changed, proxyOrchestrator's
+            // onDidChangeConfiguration listener handles prompting or auto-reloading the window.
+            vscode.window.showInformationMessage(t.configSaved);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to save config: ${error}`);
         }
@@ -430,6 +476,7 @@ export class DashboardManager {
             sshConfigEnabled: status.sshConfigEnabled,
             localProxyReachable: status.localProxyReachable,
             remoteProxyReachable: status.remoteProxyReachable,
+            remoteProxyFunctional: status.remoteProxyFunctional,
             remoteProxyHost: status.remoteProxyHost,
             languageServerConfigured: status.languageServerConfigured,
             lastUpdated: status.lastUpdated.toLocaleTimeString(),
@@ -493,10 +540,14 @@ export class DashboardManager {
                 tooltip = this.currentLang === 'zh'
                     ? 'SSH Relay Guard (SRG)\n⚠️ 隧道未建立\n\n① 在本地安装 SRG 插件\n② 本地运行「Add Host Forwarding」\n③ 重新连接此服务器'
                     : 'SSH Relay Guard (SRG)\n⚠️ Tunnel not established\n\n① Install SRG on your LOCAL machine\n② Run \"Add Host Forwarding\" locally\n③ Reconnect to this server';
+            } else if (status.remoteProxyFunctional) {
+                tooltip = 'SSH Relay Guard (SRG)\n✅ Proxy OK';
+            } else if (status.remoteProxyReachable) {
+                tooltip = this.currentLang === 'zh'
+                    ? 'SSH Relay Guard (SRG)\n⚠️ 端口可达但代理无响应\n\n可能原因：\n• 端口被其他进程占用\n• 本地代理未运行'
+                    : 'SSH Relay Guard (SRG)\n⚠️ Port reachable but proxy not responding\n\nPossible causes:\n• Port occupied by another process\n• Local proxy not running';
             } else {
-                tooltip = status.remoteProxyReachable
-                    ? 'SSH Relay Guard (SRG)\n✅ Proxy OK'
-                    : 'SSH Relay Guard (SRG)\n❌ Proxy unreachable';
+                tooltip = 'SSH Relay Guard (SRG)\n❌ Proxy unreachable';
             }
         }
 
@@ -521,6 +572,7 @@ export class DashboardManager {
             currentLang: this.currentLang,
             enableForwarding: this.configService.enableLocalForwarding,
             proxyType:        this.configService.proxyType,
+            rewriteCloudCodeEndpoint: this.configService.rewriteCloudCodeEndpoint,
             diagnosticReport: this.currentDiagnosticReport,
             isRunningDiagnostics: this.isRunningDiagnostics,
             trafficStats:    this.connectionMonitor.getStats(),
