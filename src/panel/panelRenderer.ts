@@ -24,6 +24,7 @@ export interface PanelContext {
     // VS Code config values (read once by caller, passed here)
     enableForwarding: boolean;
     proxyType: string;
+    rewriteCloudCodeEndpoint: boolean;
 
     // Diagnostic state
     diagnosticReport: DiagnosticReport | null;
@@ -71,9 +72,16 @@ export function resolveStatusAppearance(
     if (status.remoteSetupCompleted === false) {
         return { color: '#fbbf24', text: t.notSetup };
     }
-    return status.remoteProxyReachable
-        ? { color: '#34d399', text: t.connected }
-        : { color: '#f87171', text: t.disconnected };
+    // Green only when proxy protocol handshake succeeds (not just TCP port open)
+    if (status.remoteProxyFunctional) {
+        return { color: '#34d399', text: t.connected };
+    }
+    // Port reachable but proxy handshake failed → partial (yellow)
+    // This catches: port occupied by another process, local proxy not running, etc.
+    if (status.remoteProxyReachable) {
+        return { color: '#fbbf24', text: t.partial };
+    }
+    return { color: '#f87171', text: t.disconnected };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,8 +272,8 @@ function buildStatsStrip(ctx: PanelContext, isLocal: boolean): string {
             </div>`;
     }
 
-    const proxyClass = status.remoteProxyReachable ? 'g' : 'r';
-    const proxyText = status.remoteProxyReachable ? t.reachable : t.unreachable;
+    const proxyClass = status.remoteProxyFunctional ? 'g' : (status.remoteProxyReachable ? 'a' : 'r');
+    const proxyText = status.remoteProxyFunctional ? t.reachable : t.unreachable;
     const lsConfigured = status.languageServerConfigured;
     const lsClass = lsConfigured ? 'g' : 'r';
     const lsText = lsConfigured !== undefined
@@ -312,10 +320,22 @@ function buildDiagnosticsHtml(ctx: PanelContext, isLocal: boolean): string {
         const { statusText, statusClass } = resolveCheckStatus(check, false, isLocal, t);
         const message        = check.message;
         const suggestion     = check.suggestion;
+        const fixAction      = check.fixAction;
         const protocolResults = check.protocolResults;
         const hasDetails     = message || suggestion || protocolResults;
         const protocolHtml   = buildProtocolListHtml(check, protocolResults);
         const dotClass       = STATUS_TO_DOT[check.status] ?? 'p';
+
+        // Build fix button HTML if fixAction is available
+        let fixBtnHtml = '';
+        if (fixAction) {
+            const escaped = fixAction.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            if (fixAction.startsWith('copyCommand:')) {
+                fixBtnHtml = `<button class="ab ab-fix ab-sm" onclick="fixDiag('${escaped}')">${t.copyCmd}</button>`;
+            } else {
+                fixBtnHtml = `<button class="ab ab-fix ab-sm" onclick="fixDiag('${escaped}')">${t.fix}</button>`;
+            }
+        }
 
         return `
             <div class="diag-wrap">
@@ -328,7 +348,10 @@ function buildDiagnosticsHtml(ctx: PanelContext, isLocal: boolean): string {
                 <div class="diag-detail">
                     ${protocolHtml}
                     ${message && !protocolResults ? `<div class="diag-msg">${message}</div>` : ''}
-                    ${suggestion ? `<div class="diag-tip">💡 ${suggestion}</div>` : ''}
+                    ${suggestion ? `<div class="diag-tip-row">
+                        <div class="diag-tip">💡 ${suggestion}</div>
+                        ${fixBtnHtml}
+                    </div>` : ''}
                 </div>` : ''}
             </div>`;
     }).join('');
@@ -399,9 +422,13 @@ function getDiagCheckName(id: string, t: Translations): string {
 // ---------------------------------------------------------------------------
 
 function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
+    const port = status.remoteProxyPort;
+    const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} <hostname>`;
+    const escapedCmd = tunnelCmd.replace(/'/g, "\\'");
+
     return `
         <!-- Warning Alert: always in DOM for remote mode, visibility controlled by JS -->
-        <div id="tunnel-alert" class="alert-banner" style="${!status.remoteProxyReachable ? '' : 'display:none;'}">
+        <div id="tunnel-alert" class="alert-banner" style="${!status.remoteProxyFunctional ? '' : 'display:none;'}">
             <div class="alert-ico">⚠</div>
             <div class="alert-body">
                 <h4>${t.tunnelWarningTitle}</h4>
@@ -410,8 +437,20 @@ function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
                     <div class="step-item"><span class="step-n step-n-warn">1</span>${t.tunnelStep1}</div>
                     <div class="step-item"><span class="step-n step-n-warn">2</span>${t.tunnelStep2}</div>
                     <div class="step-item"><span class="step-n step-n-warn">3</span>${t.tunnelStep3}</div>
+                    <div class="step-item"><span class="step-n step-n-warn">4</span>${t.tunnelStep4}</div>
                 </div>
-                <button class="ab ab-warn" onclick="closeRemote()">${t.closeRemote}</button>
+                <div class="tunnel-cmd-wrap">
+                    <div class="tunnel-cmd-label">${t.tunnelCmdLabel}</div>
+                    <div class="tunnel-cmd-row">
+                        <code class="tunnel-cmd-code">${tunnelCmd}</code>
+                        <button class="ab ab-fix ab-sm" onclick="copyCmd('${escapedCmd}')">${t.copyCmd}</button>
+                    </div>
+                </div>
+                <div class="alert-actions">
+                    <button class="ab ab-warn" onclick="refresh()">${t.retryCheck}</button>
+                    <button class="ab ab-warn" onclick="runDiagnostics()">${t.runDiag}</button>
+                    <button class="ab ab-ghost ab-sm" onclick="closeRemote()" style="margin-left:auto;">${t.closeRemote}</button>
+                </div>
             </div>
         </div>`;
 }
@@ -457,7 +496,15 @@ function buildRemoteConfigSection(ctx: PanelContext): string {
                 <option value="http" ${proxyType === 'http' ? 'selected' : ''}>${t.proxyTypeHttp}</option>
                 <option value="socks5" ${proxyType === 'socks5' ? 'selected' : ''}>${t.proxyTypeSocks5}</option>
             </select>
-        </div>`;
+        </div>
+        <div class="prop">
+            <span class="prop-k">${t.rewriteCloudCodeEndpoint}</span>
+            <label class="sw">
+                <input type="checkbox" id="rewriteCloudCodeEndpoint" ${ctx.rewriteCloudCodeEndpoint ? 'checked' : ''}>
+                <span class="sw-track"></span>
+            </label>
+        </div>
+        <div class="hint">${t.rewriteCloudCodeTip}</div>`;
 }
 
 function buildLocalTips(t: Translations): string {
@@ -675,6 +722,7 @@ const STATIC_CSS = `
         .alert-body h4 { font-size: 12px; font-weight: 700; color: var(--amber); margin-bottom: 4px; }
         .alert-body p { font-size: 11px; color: var(--text-label); margin-bottom: 8px; line-height: 1.5; }
         .alert-steps { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+        .alert-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
         /* Diagnostics */
         .diag-wrap {
@@ -711,6 +759,31 @@ const STATIC_CSS = `
             background: var(--amber-soft); padding: 4px 8px;
             border-radius: var(--radius-sm); margin-top: 4px;
         }
+        .diag-tip-row {
+            display: flex; align-items: flex-start; gap: 8px; margin-top: 4px;
+        }
+        .diag-tip-row .diag-tip { flex: 1; margin-top: 0; }
+        .ab-fix {
+            font-size: 10px !important; padding: 2px 8px !important;
+            white-space: nowrap; flex-shrink: 0;
+            background: var(--amber) !important; color: #1a1a2e !important;
+            border: none !important; font-weight: 700 !important;
+        }
+        .ab-fix:hover { opacity: 0.85; }
+
+        /* Tunnel command block */
+        .tunnel-cmd-wrap {
+            margin-top: 10px; padding: 8px 10px;
+            background: rgba(0,0,0,0.25); border-radius: var(--radius-sm);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .tunnel-cmd-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; }
+        .tunnel-cmd-row { display: flex; align-items: center; gap: 8px; }
+        .tunnel-cmd-code {
+            flex: 1; font-family: 'SF Mono', Menlo, monospace;
+            font-size: 11px; color: var(--amber); word-break: break-all;
+        }
+        .tunnel-cmd-row .ab-fix { margin: 0; }
 
         /* Protocol list */
         .proto-list { margin-bottom: 4px; }
@@ -849,6 +922,7 @@ function buildClientScript(isLocal: boolean): string {
                 config.remoteProxyPort = parseInt(document.getElementById('remoteProxyPort').value);
             } else {
                 config.proxyType = document.getElementById('proxyType').value;
+                config.rewriteCloudCodeEndpoint = document.getElementById('rewriteCloudCodeEndpoint').checked;
             }
             vscode.postMessage({ command: 'saveConfig', config });
         }
@@ -859,6 +933,14 @@ function buildClientScript(isLocal: boolean): string {
 
         function closeRemote() {
             vscode.postMessage({ command: 'closeRemote' });
+        }
+
+        function fixDiag(action) {
+            vscode.postMessage({ command: 'fixDiag', action: action });
+        }
+
+        function copyCmd(text) {
+            vscode.postMessage({ command: 'copyCommand', text: text });
         }
 
         window.addEventListener('message', event => {
@@ -899,8 +981,9 @@ function buildClientScript(isLocal: boolean): string {
                 } else {
                     const remoteVal = document.getElementById('remote-proxy-val');
                     if (remoteVal) {
-                        remoteVal.textContent = m.remoteProxyReachable ? m.t.reachable : m.t.unreachable;
-                        remoteVal.className   = 'stat-val ' + (m.remoteProxyReachable ? 'g' : 'r');
+                        const proxyFunctional = m.remoteProxyFunctional;
+                        remoteVal.textContent = proxyFunctional ? m.t.reachable : m.t.unreachable;
+                        remoteVal.className   = 'stat-val ' + (proxyFunctional ? 'g' : (m.remoteProxyReachable ? 'a' : 'r'));
                     }
 
                     const lsRow = document.getElementById('lang-server-row');
@@ -919,7 +1002,7 @@ function buildClientScript(isLocal: boolean): string {
 
                     const tunnelAlert = document.getElementById('tunnel-alert');
                     if (tunnelAlert) {
-                        tunnelAlert.style.display = m.remoteProxyReachable ? 'none' : 'flex';
+                        tunnelAlert.style.display = m.remoteProxyFunctional ? 'none' : 'flex';
                     }
                 }
 

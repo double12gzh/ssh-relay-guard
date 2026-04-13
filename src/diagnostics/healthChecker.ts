@@ -49,6 +49,12 @@ export interface DiagnosticCheck {
     status: 'pending' | 'running' | 'success' | 'warning' | 'error';
     message?: string;
     suggestion?: string;
+    /**
+     * Machine-readable action for one-click fix. Rendered as a 🔧 button in the panel.
+     * Values: 'setup', 'enableForwarding', 'killReload', 'reloadWindow',
+     *         'switchProtocol:<type>', 'copyCommand:<text>'
+     */
+    fixAction?: string;
     // For external connectivity check - protocol test results
     protocolResults?: ProtocolTestResult[];
     currentProtocol?: string;
@@ -132,7 +138,8 @@ async function checkSSHConfig(remoteProxyPort: number): Promise<DiagnosticCheck>
                 if (hosts.length === 0) {
                     check.status = 'error';
                     check.message = 'config.srg exists but has no host blocks configured';
-                    check.suggestion = 'Run "Add Host Forwarding" command to configure SSH.';
+                    check.suggestion = 'Click 🔧 to open "Add Host Forwarding" and configure a host.';
+                    check.fixAction = 'enableForwarding';
                 } else {
                     // Check if any host has the expected remotePort
                     const portMatches = [...srgContent.matchAll(/RemoteForward\s+(\d+)/g)];
@@ -149,18 +156,21 @@ async function checkSSHConfig(remoteProxyPort: number): Promise<DiagnosticCheck>
                     } else {
                         check.status = 'error';
                         check.message = 'RemoteForward directive not found in config.srg';
-                        check.suggestion = 'Run "Add Host Forwarding" command to configure SSH.';
+                        check.suggestion = 'Click 🔧 to open "Add Host Forwarding" and configure SSH.';
+                        check.fixAction = 'enableForwarding';
                     }
                 }
             } catch {
                 check.status = 'error';
                 check.message = 'config.srg file not found despite Include line in ~/.ssh/config';
-                check.suggestion = 'Run "Add Host Forwarding" command to recreate SSH configuration.';
+                check.suggestion = 'Click 🔧 to open "Add Host Forwarding" and recreate SSH configuration.';
+                check.fixAction = 'enableForwarding';
             }
         } else {
             check.status = 'error';
             check.message = 'SSH config does not include config.srg';
-            check.suggestion = 'Run "Add Host Forwarding" command to configure SSH.';
+            check.suggestion = 'Click 🔧 to open "Add Host Forwarding" and configure SSH.';
+            check.fixAction = 'enableForwarding';
         }
     } catch {
         check.status = 'error';
@@ -189,12 +199,13 @@ async function checkRemotePortForward(remoteProxyHost: string, remoteProxyPort: 
         } else {
             check.status = 'error';
             check.message = `Cannot connect to ${remoteProxyHost}:${remoteProxyPort}`;
-            check.suggestion = 'Reconnect to the remote server to establish the SSH tunnel. Check if the port is occupied on the remote server.';
+            check.suggestion = `Run on LOCAL terminal: ssh -fN -R ${remoteProxyPort}:127.0.0.1:${remoteProxyPort} <hostname>`;
+            check.fixAction = `copyCommand:ssh -fN -R ${remoteProxyPort}:127.0.0.1:${remoteProxyPort} <hostname>`;
         }
     } catch (error) {
         check.status = 'error';
         check.message = `Error checking remote port: ${error}`;
-        check.suggestion = 'Please reconnect to the remote server.';
+        check.suggestion = `Run on LOCAL terminal: ssh -fN -R ${remoteProxyPort}:127.0.0.1:${remoteProxyPort} <hostname>`;
     }
 
     return check;
@@ -370,12 +381,14 @@ async function checkLanguageServerWrapper(extensionPath?: string): Promise<Diagn
                 wrapperVersion !== extensionVersion && extensionVersion !== '__EXTENSION_VERSION_PLACEHOLDER__') {
                 check.status = 'warning';
                 check.message += ' - Version mismatch, update recommended';
-                check.suggestion = 'Run "Setup Remote Environment" command to update the wrapper.';
+                check.suggestion = 'Click 🔧 to run "Setup Remote Environment" and update the wrapper.';
+                check.fixAction = 'setup';
             }
         } else {
             check.status = 'warning';
             check.message = 'Language server is not wrapped with mgraftcp';
-            check.suggestion = 'Run "Setup Remote Environment" command to configure the wrapper.';
+            check.suggestion = 'Click 🔧 to run "Setup Remote Environment" and configure the wrapper.';
+            check.fixAction = 'setup';
         }
     } catch (error) {
         if (isWindowsEnvironmentError(String(error))) {
@@ -385,7 +398,8 @@ async function checkLanguageServerWrapper(extensionPath?: string): Promise<Diagn
         } else {
             check.status = 'warning';
             check.message = `Could not verify wrapper: ${error}`;
-            check.suggestion = 'Run "Setup Remote Environment" command if language server proxy is needed.';
+            check.suggestion = 'Click 🔧 to run "Setup Remote Environment" if language server proxy is needed.';
+            check.fixAction = 'setup';
         }
     }
 
@@ -421,11 +435,12 @@ async function checkLanguageServerProcess(): Promise<DiagnosticCheck> {
     } else if (proc.isPersistent) {
         // Persistent mode but not using proxy — this is the known bug scenario
         check.status = 'error';
-        check.suggestion = 'The LS was started before the proxy wrapper was configured. ' +
-            `Kill the LS process and reload: Run "kill ${proc.pid}" in terminal, then reload window.`;
+        check.suggestion = `LS was started before proxy wrapper was configured. Click 🔧 to auto-fix (kill PID ${proc.pid} + reload).`;
+        check.fixAction = 'killReload';
     } else {
         check.status = 'warning';
-        check.suggestion = 'Reload the window to restart LS with proxy support.';
+        check.suggestion = 'Click 🔧 to reload the window and restart LS with proxy support.';
+        check.fixAction = 'reloadWindow';
     }
 
     check.message = `Language Server (PID ${proc.pid}) is running in ${modeLabel}, ${proxyLabel}`;
@@ -491,9 +506,13 @@ async function checkExternalConnectivity(remoteProxyHost: string, remoteProxyPor
     } else if (anySuccess) {
         // Current protocol doesn't work, but others do
         check.status = 'warning';
-        const workingProtocols = results.filter(r => r.success).map(r => r.protocol.toUpperCase()).join(', ');
+        const workingProtocols = results.filter(r => r.success).map(r => r.protocol).join(', ');
+        const firstWorking = results.find(r => r.success);
         check.message = `Current protocol (${currentProxyType.toUpperCase()}) is not working.`;
-        check.suggestion = `Consider switching to ${workingProtocols} which is available.`;
+        check.suggestion = `Click 🔧 to switch to ${workingProtocols.toUpperCase()} which is available.`;
+        if (firstWorking) {
+            check.fixAction = `switchProtocol:${firstWorking.protocol}`;
+        }
     } else {
         // No protocols work
         check.status = 'error';

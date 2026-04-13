@@ -14,6 +14,7 @@ export class ConfigService implements vscode.Disposable {
 	private _proxyType: string;
 	private _enableLocalForwarding: boolean;
 	private _showStatusOnStartup: boolean;
+	private _rewriteCloudCodeEndpoint: boolean;
 	private disposable: vscode.Disposable;
 	private changeListeners: Array<() => void> = [];
 
@@ -24,6 +25,7 @@ export class ConfigService implements vscode.Disposable {
 		this._proxyType = 'http';
 		this._enableLocalForwarding = true;
 		this._showStatusOnStartup = true;
+		this._rewriteCloudCodeEndpoint = false;
 		this.reload();
 
 		this.disposable = vscode.workspace.onDidChangeConfiguration(e => {
@@ -36,7 +38,7 @@ export class ConfigService implements vscode.Disposable {
 		});
 	}
 
-	private reload(): void {
+	public reload(): void {
 		const cfg = vscode.workspace.getConfiguration('ssh-relay-guard');
 		this._localProxyPort = cfg.get<number>('localProxyPort', 7890);
 		this._remoteProxyPort = cfg.get<number>('remoteProxyPort', 7890);
@@ -44,6 +46,7 @@ export class ConfigService implements vscode.Disposable {
 		this._proxyType = cfg.get<string>('proxyType', 'http');
 		this._enableLocalForwarding = cfg.get<boolean>('enableLocalForwarding', true);
 		this._showStatusOnStartup = cfg.get<boolean>('showStatusOnStartup', true);
+		this._rewriteCloudCodeEndpoint = cfg.get<boolean>('rewriteCloudCodeEndpoint', false);
 	}
 
 	get localProxyPort(): number { return this._localProxyPort; }
@@ -52,6 +55,7 @@ export class ConfigService implements vscode.Disposable {
 	get proxyType(): string { return this._proxyType; }
 	get enableLocalForwarding(): boolean { return this._enableLocalForwarding; }
 	get showStatusOnStartup(): boolean { return this._showStatusOnStartup; }
+	get rewriteCloudCodeEndpoint(): boolean { return this._rewriteCloudCodeEndpoint; }
 
 	/**
 	 * Register a listener that fires when ssh-relay-guard config changes.

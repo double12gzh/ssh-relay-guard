@@ -88,13 +88,13 @@
         "ssh-relay-guard.remoteProxyHost": {
           "type": "string",
           "default": "127.0.0.1",
-          "scope": "machine-overridable",
+          "scope": "application",
           "description": "The host address on the remote server where the proxy is reachable. Use 127.0.0.1 when enableLocalForwarding is true."
         },
         "ssh-relay-guard.remoteProxyPort": {
           "type": "number",
           "default": 7890,
-          "scope": "machine-overridable",
+          "scope": "application",
           "description": "The port on the remote server used as the proxy gateway."
         },
         "ssh-relay-guard.showStatusOnStartup": {
@@ -116,6 +116,12 @@
           ],
           "scope": "machine-overridable",
           "description": "The proxy protocol type. Choose HTTP for most proxy software (Clash, V2Ray, etc), or SOCKS5 if your proxy only supports SOCKS5."
+        },
+        "ssh-relay-guard.rewriteCloudCodeEndpoint": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine-overridable",
+          "description": "Rewrite daily-cloudcode-pa.googleapis.com to cloudcode-pa.googleapis.com in remote Language Server arguments to bypass DNS pollution."
         }
       }
     }
