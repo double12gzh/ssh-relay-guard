@@ -1,5 +1,5 @@
 export function buildClientScript(isLocal: boolean): string {
-    return `
+	return `
         const vscode = acquireVsCodeApi();
         const isLocal = ${isLocal};
 

@@ -51,16 +51,21 @@ export class ProxyOrchestrator implements vscode.Disposable {
 
 		if (this.isLocal) {
 			const localCtrl = new LocalModeController(
-				this.context, this.configService, this.dashboardManager,
-				this.tunnelManager, (m) => this.log(m),
-			);
-			localCtrl.activate().catch(err => this.log(`activateLocal error: ${err}`));
-		} else {
-			const remoteCtrl = new RemoteModeController(
-				this.context, this.configService, this.dashboardManager,
+				this.context,
+				this.configService,
+				this.dashboardManager,
+				this.tunnelManager,
 				(m) => this.log(m),
 			);
-			remoteCtrl.activate().catch(err => this.log(`activateRemote error: ${err}`));
+			localCtrl.activate().catch((err) => this.log(`activateLocal error: ${err}`));
+		} else {
+			const remoteCtrl = new RemoteModeController(
+				this.context,
+				this.configService,
+				this.dashboardManager,
+				(m) => this.log(m),
+			);
+			remoteCtrl.activate().catch((err) => this.log(`activateRemote error: ${err}`));
 		}
 	}
 

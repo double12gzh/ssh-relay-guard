@@ -8,7 +8,7 @@ import {
 	readAllStatus,
 	SRG_CONFIG_FILENAME,
 	INCLUDE_LINE,
-	customHomedirForTesting
+	customHomedirForTesting,
 } from '../core/sshConfigManager';
 
 /**
@@ -55,7 +55,10 @@ suite('SSH Config Manager', () => {
 		assert.ok(srgConfig.includes('# --- SRG:test-server ---'), 'Should have start marker');
 		assert.ok(srgConfig.includes('# --- SRG:test-server END ---'), 'Should have end marker');
 		assert.ok(srgConfig.includes('Host test-server'), 'Should have Host directive');
-		assert.ok(srgConfig.includes('RemoteForward 7890 127.0.0.1:7890'), 'Should have RemoteForward');
+		assert.ok(
+			srgConfig.includes('RemoteForward 7890 127.0.0.1:7890'),
+			'Should have RemoteForward',
+		);
 		assert.ok(srgConfig.includes('ControlMaster auto'), 'Should have ControlMaster');
 		assert.ok(srgConfig.includes('ControlPersist 4h'), 'Should have ControlPersist');
 
@@ -131,7 +134,11 @@ suite('SSH Config Manager', () => {
 		const sshDir = path.join(tmpDir, '.ssh');
 		const mainConfig = await fs.readFile(path.join(sshDir, 'config'), 'utf-8');
 
-		const includeCount = (mainConfig.match(new RegExp(INCLUDE_LINE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+		const includeCount = (
+			mainConfig.match(
+				new RegExp(INCLUDE_LINE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+			) || []
+		).length;
 		assert.strictEqual(includeCount, 1, 'Should have exactly one Include line');
 	});
 

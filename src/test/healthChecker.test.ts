@@ -1,12 +1,15 @@
 import * as assert from 'assert';
-import { generateReportText, DiagnosticReport, DiagnosticCheck } from '../diagnostics/healthChecker';
+import {
+	generateReportText,
+	DiagnosticReport,
+	DiagnosticCheck,
+} from '../diagnostics/healthChecker';
 
 /**
  * Tests for Health Check report generation.
  * generateReportText is a pure function — ideal for unit testing.
  */
 suite('Health Checker — Report Generation', () => {
-
 	function makeCheck(overrides: Partial<DiagnosticCheck>): DiagnosticCheck {
 		return {
 			id: 'test',
@@ -16,7 +19,10 @@ suite('Health Checker — Report Generation', () => {
 		};
 	}
 
-	function makeReport(checks: DiagnosticCheck[], overallStatus: 'healthy' | 'degraded' | 'broken' = 'healthy'): DiagnosticReport {
+	function makeReport(
+		checks: DiagnosticCheck[],
+		overallStatus: 'healthy' | 'degraded' | 'broken' = 'healthy',
+	): DiagnosticReport {
 		return {
 			timestamp: new Date('2026-01-01T00:00:00Z'),
 			checks,
@@ -85,7 +91,10 @@ suite('Health Checker — Report Generation', () => {
 		];
 		const text = generateReportText(makeReport(checks, 'degraded'));
 
-		assert.ok(text.includes('├── HTTP: ✗ Not working ← Current'), 'Should show HTTP as current');
+		assert.ok(
+			text.includes('├── HTTP: ✗ Not working ← Current'),
+			'Should show HTTP as current',
+		);
 		assert.ok(text.includes('└── SOCKS5: ✓ Available'), 'Should show SOCKS5 as available');
 	});
 

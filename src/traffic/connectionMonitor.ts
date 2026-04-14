@@ -6,241 +6,250 @@ import { promisify } from 'util';
 import { isPortReachable } from '../utils/portProbe';
 
 const _execAsync = promisify(exec);
-const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+const execAsync = async (
+	cmd: string,
+	options?: any,
+): Promise<{ stdout: string; stderr: string }> => {
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
 };
 
 export interface TrafficStats {
-    activeConnections: number;
-    totalConnectionsSeen: number;
-    sessionStartTime: Date;
-    lastUpdated: Date;
-    proxyReachable: boolean;
+	activeConnections: number;
+	totalConnectionsSeen: number;
+	sessionStartTime: Date;
+	lastUpdated: Date;
+	proxyReachable: boolean;
 }
 
 type StatsUpdateCallback = (stats: TrafficStats) => void;
 
 export class ConnectionMonitor {
-    private stats: TrafficStats;
-    private refreshInterval: NodeJS.Timeout | undefined;
-    private updateCallbacks: StatsUpdateCallback[] = [];
-    private peakConnections: number = 0;
-    private readonly refreshIntervalMs: number = 2000;
+	private stats: TrafficStats;
+	private refreshInterval: NodeJS.Timeout | undefined;
+	private updateCallbacks: StatsUpdateCallback[] = [];
+	private peakConnections: number = 0;
+	private readonly refreshIntervalMs: number = 2000;
 
-    constructor(private configService: ConfigService) {
-        this.stats = {
-            activeConnections: 0,
-            totalConnectionsSeen: 0,
-            sessionStartTime: new Date(),
-            lastUpdated: new Date(),
-            proxyReachable: false
-        };
-    }
+	constructor(private configService: ConfigService) {
+		this.stats = {
+			activeConnections: 0,
+			totalConnectionsSeen: 0,
+			sessionStartTime: new Date(),
+			lastUpdated: new Date(),
+			proxyReachable: false,
+		};
+	}
 
-    /**
-     * Check if running in remote environment
-     */
-    isRemote(): boolean {
-        return !!vscode.env.remoteName;
-    }
+	/**
+	 * Check if running in remote environment
+	 */
+	isRemote(): boolean {
+		return !!vscode.env.remoteName;
+	}
 
-    /**
-     * Start collecting traffic statistics
-     */
-    start(): void {
-        if (!this.isRemote()) {
-            return;
-        }
+	/**
+	 * Start collecting traffic statistics
+	 */
+	start(): void {
+		if (!this.isRemote()) {
+			return;
+		}
 
-        this.stats.sessionStartTime = new Date();
-        this.stop(); // Clear any existing interval
-        
-        // Initial collection
-        this.collect();
-        
-        // Set up periodic collection
-        this.refreshInterval = setInterval(() => {
-            this.collect();
-        }, this.refreshIntervalMs);
-    }
+		this.stats.sessionStartTime = new Date();
+		this.stop(); // Clear any existing interval
 
-    /**
-     * Stop collecting traffic statistics
-     */
-    stop(): void {
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = undefined;
-        }
-    }
+		// Initial collection
+		this.collect();
 
-    /**
-     * Pause monitoring when WebView panel is hidden.
-     * Eliminates CPU/IO overhead while the panel is invisible.
-     */
-    pause(): void {
-        this.stop();
-    }
+		// Set up periodic collection
+		this.refreshInterval = setInterval(() => {
+			this.collect();
+		}, this.refreshIntervalMs);
+	}
 
-    /**
-     * Resume monitoring when WebView panel becomes visible again.
-     * Immediately collects fresh data before restarting the interval.
-     */
-    resume(): void {
-        if (!this.refreshInterval && this.isRemote()) {
-            this.collect();
-            this.refreshInterval = setInterval(() => {
-                this.collect();
-            }, this.refreshIntervalMs);
-        }
-    }
+	/**
+	 * Stop collecting traffic statistics
+	 */
+	stop(): void {
+		if (this.refreshInterval) {
+			clearInterval(this.refreshInterval);
+			this.refreshInterval = undefined;
+		}
+	}
 
-    /**
-     * Register a callback for stats updates
-     */
-    onUpdate(callback: StatsUpdateCallback): vscode.Disposable {
-        this.updateCallbacks.push(callback);
-        return new vscode.Disposable(() => {
-            const index = this.updateCallbacks.indexOf(callback);
-            if (index >= 0) {
-                this.updateCallbacks.splice(index, 1);
-            }
-        });
-    }
+	/**
+	 * Pause monitoring when WebView panel is hidden.
+	 * Eliminates CPU/IO overhead while the panel is invisible.
+	 */
+	pause(): void {
+		this.stop();
+	}
 
-    /**
-     * Get current statistics
-     */
-    getStats(): TrafficStats {
-        return { ...this.stats };
-    }
+	/**
+	 * Resume monitoring when WebView panel becomes visible again.
+	 * Immediately collects fresh data before restarting the interval.
+	 */
+	resume(): void {
+		if (!this.refreshInterval && this.isRemote()) {
+			this.collect();
+			this.refreshInterval = setInterval(() => {
+				this.collect();
+			}, this.refreshIntervalMs);
+		}
+	}
 
-    /**
-     * Manually trigger a stats refresh
-     */
-    async refresh(): Promise<TrafficStats> {
-        await this.collect();
-        return this.getStats();
-    }
+	/**
+	 * Register a callback for stats updates
+	 */
+	onUpdate(callback: StatsUpdateCallback): vscode.Disposable {
+		this.updateCallbacks.push(callback);
+		return new vscode.Disposable(() => {
+			const index = this.updateCallbacks.indexOf(callback);
+			if (index >= 0) {
+				this.updateCallbacks.splice(index, 1);
+			}
+		});
+	}
 
-    /**
-     * Collect traffic statistics
-     */
-    private async collect(): Promise<void> {
-        const remoteProxyHost = this.configService.remoteProxyHost;
-        const remoteProxyPort = this.configService.remoteProxyPort;
+	/**
+	 * Get current statistics
+	 */
+	getStats(): TrafficStats {
+		return { ...this.stats };
+	}
 
-        // Check proxy reachability
-        this.stats.proxyReachable = await isPortReachable(remoteProxyHost, remoteProxyPort);
+	/**
+	 * Manually trigger a stats refresh
+	 */
+	async refresh(): Promise<TrafficStats> {
+		await this.collect();
+		return this.getStats();
+	}
 
-        // Get active connections using ss command
-        const activeConnections = await this.getActiveConnections(remoteProxyPort);
-        
-        // Track total connections seen.
-        // Only count upward deltas: new connections being established.
-        // Downward deltas (connections closing) are NOT new connections,
-        // so we only update the peak reference without adding to the total.
-        if (activeConnections > this.peakConnections) {
-            this.stats.totalConnectionsSeen += (activeConnections - this.peakConnections);
-            this.peakConnections = activeConnections;
-        } else if (activeConnections < this.peakConnections) {
-            // Connections closed — update baseline but don't double-count
-            this.peakConnections = activeConnections;
-        }
+	/**
+	 * Collect traffic statistics
+	 */
+	private async collect(): Promise<void> {
+		const remoteProxyHost = this.configService.remoteProxyHost;
+		const remoteProxyPort = this.configService.remoteProxyPort;
 
-        this.stats.activeConnections = activeConnections;
-        this.stats.lastUpdated = new Date();
+		// Check proxy reachability
+		this.stats.proxyReachable = await isPortReachable(remoteProxyHost, remoteProxyPort);
 
-        // Notify callbacks
-        for (const callback of this.updateCallbacks) {
-            callback(this.getStats());
-        }
-    }
+		// Get active connections using ss command
+		const activeConnections = await this.getActiveConnections(remoteProxyPort);
 
-    /**
-     * Get active connection count by reading /proc/net/tcp directly.
-     * ~100x faster than exec('ss'): 1-5ms vs 50-200ms per call.
-     * Falls back to exec('ss') on non-Linux platforms.
-     */
-    private async getActiveConnections(port: number): Promise<number> {
-        try {
-            return await this.getActiveConnectionsFromProc(port);
-        } catch {
-            // /proc/net/tcp not available (non-Linux), fall back to ss
-            return await this.getActiveConnectionsFromSs(port);
-        }
-    }
+		// Track total connections seen.
+		// Only count upward deltas: new connections being established.
+		// Downward deltas (connections closing) are NOT new connections,
+		// so we only update the peak reference without adding to the total.
+		if (activeConnections > this.peakConnections) {
+			this.stats.totalConnectionsSeen += activeConnections - this.peakConnections;
+			this.peakConnections = activeConnections;
+		} else if (activeConnections < this.peakConnections) {
+			// Connections closed — update baseline but don't double-count
+			this.peakConnections = activeConnections;
+		}
 
-    /**
-     * Parse /proc/net/tcp and /proc/net/tcp6 to count ESTABLISHED connections.
-     * Format: sl  local_address  rem_address  st  ...
-     * State 01 = ESTABLISHED
-     */
-    private async getActiveConnectionsFromProc(port: number): Promise<number> {
-        const hexPort = port.toString(16).toUpperCase().padStart(4, '0');
-        let count = 0;
+		this.stats.activeConnections = activeConnections;
+		this.stats.lastUpdated = new Date();
 
-        for (const procFile of ['/proc/net/tcp', '/proc/net/tcp6']) {
-            try {
-                const data = await fs.readFile(procFile, 'utf-8');
-                const lines = data.split('\n');
-                // Skip header line (index 0)
-                for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i].trim();
-                    if (!line) { continue; }
-                    // Fields: sl local_address rem_address st ...
-                    // local_address and rem_address are in format ADDR:PORT (hex)
-                    const fields = line.split(/\s+/);
-                    if (fields.length < 4) { continue; }
-                    const st = fields[3]; // Connection state
-                    if (st !== '01') { continue; } // Only ESTABLISHED
-                    const localPort = fields[1].split(':').pop() ?? '';
-                    const remotePort = fields[2].split(':').pop() ?? '';
-                    if (localPort === hexPort || remotePort === hexPort) {
-                        count++;
-                    }
-                }
-            } catch {
-                // File doesn't exist (e.g., no IPv6), skip
-            }
-        }
-        return count;
-    }
+		// Notify callbacks
+		for (const callback of this.updateCallbacks) {
+			callback(this.getStats());
+		}
+	}
 
-    /**
-     * Fallback: use ss command for non-Linux platforms.
-     */
-    private async getActiveConnectionsFromSs(port: number): Promise<number> {
-        try {
-            const { stdout } = await execAsync(
-                `ss -tn state established '( dport = :${port} or sport = :${port} )' 2>/dev/null | tail -n +2 | wc -l`,
-                { timeout: 5000 }
-            );
-            const count = parseInt(stdout.trim(), 10);
-            return isNaN(count) ? 0 : count;
-        } catch {
-            return 0;
-        }
-    }
+	/**
+	 * Get active connection count by reading /proc/net/tcp directly.
+	 * ~100x faster than exec('ss'): 1-5ms vs 50-200ms per call.
+	 * Falls back to exec('ss') on non-Linux platforms.
+	 */
+	private async getActiveConnections(port: number): Promise<number> {
+		try {
+			return await this.getActiveConnectionsFromProc(port);
+		} catch {
+			// /proc/net/tcp not available (non-Linux), fall back to ss
+			return await this.getActiveConnectionsFromSs(port);
+		}
+	}
 
-    /**
-     * Get session duration in human-readable format
-     */
-    getSessionDuration(): string {
-        const now = new Date();
-        const diffMs = now.getTime() - this.stats.sessionStartTime.getTime();
-        const diffSec = Math.floor(diffMs / 1000);
-        
-        const hours = Math.floor(diffSec / 3600);
-        const minutes = Math.floor((diffSec % 3600) / 60);
-        const seconds = diffSec % 60;
+	/**
+	 * Parse /proc/net/tcp and /proc/net/tcp6 to count ESTABLISHED connections.
+	 * Format: sl  local_address  rem_address  st  ...
+	 * State 01 = ESTABLISHED
+	 */
+	private async getActiveConnectionsFromProc(port: number): Promise<number> {
+		const hexPort = port.toString(16).toUpperCase().padStart(4, '0');
+		let count = 0;
 
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
+		for (const procFile of ['/proc/net/tcp', '/proc/net/tcp6']) {
+			try {
+				const data = await fs.readFile(procFile, 'utf-8');
+				const lines = data.split('\n');
+				// Skip header line (index 0)
+				for (let i = 1; i < lines.length; i++) {
+					const line = lines[i].trim();
+					if (!line) {
+						continue;
+					}
+					// Fields: sl local_address rem_address st ...
+					// local_address and rem_address are in format ADDR:PORT (hex)
+					const fields = line.split(/\s+/);
+					if (fields.length < 4) {
+						continue;
+					}
+					const st = fields[3]; // Connection state
+					if (st !== '01') {
+						continue;
+					} // Only ESTABLISHED
+					const localPort = fields[1].split(':').pop() ?? '';
+					const remotePort = fields[2].split(':').pop() ?? '';
+					if (localPort === hexPort || remotePort === hexPort) {
+						count++;
+					}
+				}
+			} catch {
+				// File doesn't exist (e.g., no IPv6), skip
+			}
+		}
+		return count;
+	}
 
-    dispose(): void {
-        this.stop();
-        this.updateCallbacks = [];
-    }
+	/**
+	 * Fallback: use ss command for non-Linux platforms.
+	 */
+	private async getActiveConnectionsFromSs(port: number): Promise<number> {
+		try {
+			const { stdout } = await execAsync(
+				`ss -tn state established '( dport = :${port} or sport = :${port} )' 2>/dev/null | tail -n +2 | wc -l`,
+				{ timeout: 5000 },
+			);
+			const count = parseInt(stdout.trim(), 10);
+			return isNaN(count) ? 0 : count;
+		} catch {
+			return 0;
+		}
+	}
+
+	/**
+	 * Get session duration in human-readable format
+	 */
+	getSessionDuration(): string {
+		const now = new Date();
+		const diffMs = now.getTime() - this.stats.sessionStartTime.getTime();
+		const diffSec = Math.floor(diffMs / 1000);
+
+		const hours = Math.floor(diffSec / 3600);
+		const minutes = Math.floor((diffSec % 3600) / 60);
+		const seconds = diffSec % 60;
+
+		return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+	}
+
+	dispose(): void {
+		this.stop();
+		this.updateCallbacks = [];
+	}
 }

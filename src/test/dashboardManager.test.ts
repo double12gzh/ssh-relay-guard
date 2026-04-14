@@ -14,23 +14,23 @@ const mockConfigService = {
 	rewriteCloudCodeEndpoint: true,
 	globalForwardingEnabled: true,
 	onChange: () => vscode.Disposable.from(),
-	reload: () => { }
+	reload: () => {},
 } as any;
 
 /**
  * Mock ConnectionMonitor
  */
 const mockConnectionMonitor = {
-	start: () => { },
-	stop: () => { },
-	refresh: async () => { },
+	start: () => {},
+	stop: () => {},
+	refresh: async () => {},
 	onUpdate: () => vscode.Disposable.from(),
 	getStats: () => ({
 		connections: [{ name: 'TCP (127.0.0.1)', rate: '1 MB/s' }],
 		sessionDuration: '1m',
 		totalRequests: 50,
-		htmlCache: ''
-	})
+		htmlCache: '',
+	}),
 } as any;
 
 /**
@@ -38,10 +38,12 @@ const mockConnectionMonitor = {
  */
 const mockContext = {
 	globalState: {
-		get: (key: string, def?: any) => { return def; },
-		update: async (key: string, val: any) => { }
+		get: (key: string, def?: any) => {
+			return def;
+		},
+		update: async (key: string, val: any) => {},
 	},
-	subscriptions: []
+	subscriptions: [],
 } as any;
 
 suite('DashboardManager', () => {

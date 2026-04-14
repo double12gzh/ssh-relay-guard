@@ -8,10 +8,18 @@ import { buildInstallScript, buildRestoreScript } from '../setup/remoteInstaller
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
 import { isPortReachable, isSrgSetupCompleted } from '../utils/portProbe';
-import { isMgraftcpRunning, getMonitoredProcess, killTargetProcess, promptReloadWindow } from '../utils/processUtils';
+import {
+	isMgraftcpRunning,
+	getMonitoredProcess,
+	killTargetProcess,
+	promptReloadWindow,
+} from '../utils/processUtils';
 
 const _execAsync = promisify(exec);
-const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+const execAsync = async (
+	cmd: string,
+	options?: any,
+): Promise<{ stdout: string; stderr: string }> => {
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
 };
@@ -47,7 +55,9 @@ export class RemoteModeController {
 		const proxyType = this.configService.proxyType;
 
 		if (process.platform !== 'linux') {
-			this.log(`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`);
+			this.log(
+				`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`,
+			);
 			this.dashboardManager.setVerifying(false);
 			return;
 		}
@@ -62,7 +72,13 @@ export class RemoteModeController {
 			const type = this.configService.proxyType;
 			const rewrite = this.configService.rewriteCloudCodeEndpoint;
 			this.log(`Config changed from panel, re-running setup: ${host}:${port} (${type})`);
-			const success = await this.runSetupScriptSilently(host, port, type, rewrite, extensionPath);
+			const success = await this.runSetupScriptSilently(
+				host,
+				port,
+				type,
+				rewrite,
+				extensionPath,
+			);
 			this.dashboardManager.updateLanguageServerStatus(success);
 		});
 
@@ -71,7 +87,13 @@ export class RemoteModeController {
 		this.log(`Extension path: ${extensionPath}`);
 		this.log('Auto-running setup script...');
 		const rewriteCloudCode = this.configService.rewriteCloudCodeEndpoint;
-		const setupSuccess = await this.runSetupScriptSilently(remoteHost, remotePort, proxyType, rewriteCloudCode, extensionPath);
+		const setupSuccess = await this.runSetupScriptSilently(
+			remoteHost,
+			remotePort,
+			proxyType,
+			rewriteCloudCode,
+			extensionPath,
+		);
 		this.dashboardManager.updateLanguageServerStatus(setupSuccess);
 
 		await this.configureHttpProxy(remoteHost, remotePort, proxyType);
@@ -85,10 +107,16 @@ export class RemoteModeController {
 				const type = this.configService.proxyType;
 				const rewrite = this.configService.rewriteCloudCodeEndpoint;
 				this.log(`Config changed, re-running setup: ${host}:${port} (${type})`);
-				const success = await this.runSetupScriptSilently(host, port, type, rewrite, extensionPath);
+				const success = await this.runSetupScriptSilently(
+					host,
+					port,
+					type,
+					rewrite,
+					extensionPath,
+				);
 				this.dashboardManager.updateLanguageServerStatus(success);
 				await this.dashboardManager.refreshStatus();
-			})
+			}),
 		);
 
 		this.registerRemoteCommands(extensionPath, remoteHost, remotePort);
@@ -106,7 +134,11 @@ export class RemoteModeController {
 
 	// ── Commands ────────────────────────────────────────────────────────
 
-	private registerRemoteCommands(extensionPath: string, remoteHost: string, remotePort: number): void {
+	private registerRemoteCommands(
+		extensionPath: string,
+		remoteHost: string,
+		remotePort: number,
+	): void {
 		this.context.subscriptions.push(
 			vscode.commands.registerCommand('ssh-relay-guard.setup', async () => {
 				const type = this.configService.proxyType;
@@ -131,7 +163,7 @@ export class RemoteModeController {
 				const ok = await isPortReachable(remoteHost, remotePort);
 				await this.dashboardManager.refreshStatus();
 				vscode.window.showInformationMessage(ok ? `Proxy OK` : `Proxy NOT reachable`);
-			})
+			}),
 		);
 	}
 
@@ -173,17 +205,24 @@ export class RemoteModeController {
 	/**
 	 * Auto-configure VS Code's http.proxy on the remote side.
 	 */
-	private async configureHttpProxy(proxyHost: string, proxyPort: number, proxyType: string): Promise<void> {
+	private async configureHttpProxy(
+		proxyHost: string,
+		proxyPort: number,
+		proxyType: string,
+	): Promise<void> {
 		const httpConfig = vscode.workspace.getConfiguration('http');
 		const currentProxy = httpConfig.get<string>('proxy', '');
 
-		const proxyUrl = proxyType === 'socks5'
-			? `socks5://${proxyHost}:${proxyPort}`
-			: `http://${proxyHost}:${proxyPort}`;
+		const proxyUrl =
+			proxyType === 'socks5'
+				? `socks5://${proxyHost}:${proxyPort}`
+				: `http://${proxyHost}:${proxyPort}`;
 
 		if (!this.configService.setGlobalHttpProxy) {
 			if (currentProxy === proxyUrl) {
-				this.log(`Global HTTP proxy is disabled in settings. Clearing existing proxy: ${proxyUrl}`);
+				this.log(
+					`Global HTTP proxy is disabled in settings. Clearing existing proxy: ${proxyUrl}`,
+				);
 				try {
 					await httpConfig.update('proxy', '', vscode.ConfigurationTarget.Global);
 				} catch (error) {
@@ -200,9 +239,14 @@ export class RemoteModeController {
 
 		const inspected = httpConfig.inspect<string>('proxy');
 		if (inspected?.globalValue && inspected.globalValue !== '') {
-			const isLocalOrHost = inspected.globalValue.includes('127.0.0.1') || inspected.globalValue.includes('localhost') || inspected.globalValue.includes(proxyHost);
+			const isLocalOrHost =
+				inspected.globalValue.includes('127.0.0.1') ||
+				inspected.globalValue.includes('localhost') ||
+				inspected.globalValue.includes(proxyHost);
 			if (!isLocalOrHost) {
-				this.log(`http.proxy has external user-configured value "${inspected.globalValue}", not overriding`);
+				this.log(
+					`http.proxy has external user-configured value "${inspected.globalValue}", not overriding`,
+				);
 				return;
 			}
 		}
@@ -222,13 +266,23 @@ export class RemoteModeController {
 	 * Run setup script silently in background (idempotent).
 	 * @returns true if setup was successful or already configured
 	 */
-	private async runSetupScriptSilently(proxyHost: string, proxyPort: number, proxyType: string, rewriteCloudCode: boolean, extensionPath: string): Promise<boolean> {
-
+	private async runSetupScriptSilently(
+		proxyHost: string,
+		proxyPort: number,
+		proxyType: string,
+		rewriteCloudCode: boolean,
+		extensionPath: string,
+	): Promise<boolean> {
 		try {
-			const script = await buildInstallScript(proxyHost, proxyPort, rewriteCloudCode, extensionPath);
+			const script = await buildInstallScript(
+				proxyHost,
+				proxyPort,
+				rewriteCloudCode,
+				extensionPath,
+			);
 			const tempScriptPath = path.join(os.tmpdir(), `srg_setup_${Date.now()}.sh`);
 			await fs.writeFile(tempScriptPath, script, { mode: 0o755 });
-			
+
 			const extensionVersion = this.context.extension.packageJSON.version || 'unknown';
 
 			const env = {
@@ -238,18 +292,19 @@ export class RemoteModeController {
 				PROXY_TYPE: proxyType,
 				REWRITE_CLOUDCODE: rewriteCloudCode ? 'true' : 'false',
 				EXTENSION_PATH: extensionPath,
-				EXTENSION_VERSION: extensionVersion
+				EXTENSION_VERSION: extensionVersion,
 			};
 
 			const { stdout, stderr } = await execAsync(`bash "${tempScriptPath}" 2>&1`, { env });
 			const output = stdout || stderr || '';
-			
+
 			// Clean up
 			await fs.unlink(tempScriptPath).catch(() => {});
 
 			this.log(`Setup output: ${output}`);
 
-			const isNewConfig = output.includes('Setup complete') ||
+			const isNewConfig =
+				output.includes('Setup complete') ||
 				(output.includes('configured') && !output.includes('Already configured'));
 
 			if (isNewConfig) {
@@ -257,12 +312,14 @@ export class RemoteModeController {
 
 				const lsProcess = await getMonitoredProcess();
 				if (lsProcess) {
-					this.log(`Setup: LS running (PID ${lsProcess.pid}, persistent=${lsProcess.isPersistent}), killing to apply wrapper`);
+					this.log(
+						`Setup: LS running (PID ${lsProcess.pid}, persistent=${lsProcess.isPersistent}), killing to apply wrapper`,
+					);
 					await this.killLSAndAutoReload();
 				} else {
 					this.log('Setup: LS not running, will start with proxy on next use');
 					promptReloadWindow(
-						'Proxy configured. Reload window to apply changes to the language server.'
+						'Proxy configured. Reload window to apply changes to the language server.',
 					);
 				}
 				return true;
@@ -274,7 +331,9 @@ export class RemoteModeController {
 				const lsIsPersistent = lsProcess?.isPersistent ?? false;
 
 				if (lsProcess && !lsActuallyUsingProxy) {
-					this.log(`Setup: Proxy configured but LS not using it (PID ${lsProcess.pid}, persistent=${lsIsPersistent}), auto-fixing...`);
+					this.log(
+						`Setup: Proxy configured but LS not using it (PID ${lsProcess.pid}, persistent=${lsIsPersistent}), auto-fixing...`,
+					);
 					await this.killLSAndAutoReload();
 				} else if (lsActuallyUsingProxy) {
 					this.log('Setup: Proxy is active, no reload needed');
@@ -287,8 +346,12 @@ export class RemoteModeController {
 		} catch (error: unknown) {
 			const err = error as { message?: string; stdout?: string; stderr?: string };
 			this.log(`Setup error: ${err.message || error}`);
-			if (err.stdout) { this.log(`stdout: ${err.stdout}`); }
-			if (err.stderr) { this.log(`stderr: ${err.stderr}`); }
+			if (err.stdout) {
+				this.log(`stdout: ${err.stdout}`);
+			}
+			if (err.stderr) {
+				this.log(`stderr: ${err.stderr}`);
+			}
 			return false;
 		}
 	}
@@ -302,25 +365,29 @@ export class RemoteModeController {
 		const killed = await killTargetProcess((m) => this.log(m));
 		if (killed) {
 			this.log('LS killed, prompting user to reload window...');
-			vscode.window.showInformationMessage(
-				'🔄 Language Server stopped to apply proxy settings. Reload window to take effect.',
-				'Reload Now',
-				'Later'
-			).then(selection => {
-				if (selection === 'Reload Now') {
-					vscode.commands.executeCommand('workbench.action.reloadWindow');
-				}
-			});
+			vscode.window
+				.showInformationMessage(
+					'🔄 Language Server stopped to apply proxy settings. Reload window to take effect.',
+					'Reload Now',
+					'Later',
+				)
+				.then((selection) => {
+					if (selection === 'Reload Now') {
+						vscode.commands.executeCommand('workbench.action.reloadWindow');
+					}
+				});
 		} else {
-			vscode.window.showWarningMessage(
-				'Proxy configured but Language Server needs restart. ' +
-				'Run in terminal: kill $(pgrep -f language_server_linux) && then reload window.',
-				'Reload Now'
-			).then(selection => {
-				if (selection === 'Reload Now') {
-					vscode.commands.executeCommand('workbench.action.reloadWindow');
-				}
-			});
+			vscode.window
+				.showWarningMessage(
+					'Proxy configured but Language Server needs restart. ' +
+						'Run in terminal: kill $(pgrep -f language_server_linux) && then reload window.',
+					'Reload Now',
+				)
+				.then((selection) => {
+					if (selection === 'Reload Now') {
+						vscode.commands.executeCommand('workbench.action.reloadWindow');
+					}
+				});
 		}
 	}
 
@@ -364,7 +431,7 @@ export class RemoteModeController {
 			message,
 			{ modal: true },
 			'Open Dashboard',
-			'Dismiss'
+			'Dismiss',
 		);
 
 		if (selection === 'Open Dashboard') {
@@ -377,7 +444,10 @@ export class RemoteModeController {
 	/**
 	 * Show detailed warning when proxy is not reachable on the remote side.
 	 */
-	private async showSSHTunnelNotEstablishedWarning(proxyHost: string, proxyPort: number): Promise<void> {
+	private async showSSHTunnelNotEstablishedWarning(
+		proxyHost: string,
+		proxyPort: number,
+	): Promise<void> {
 		const lp = this.configService.localProxyPort;
 		const tunnelCmd = `ssh -fN -R ${proxyPort}:127.0.0.1:${lp} <hostname>`;
 
@@ -402,13 +472,13 @@ export class RemoteModeController {
 			'Copy Tunnel Command',
 			'Run Health Check',
 			'Open SRG Panel',
-			'Dismiss'
+			'Dismiss',
 		);
 
 		if (selection === 'Copy Tunnel Command') {
 			await vscode.env.clipboard.writeText(tunnelCmd);
 			vscode.window.showInformationMessage(
-				`Copied to clipboard: ${tunnelCmd}\n\nPaste in your LOCAL terminal and replace <hostname>.`
+				`Copied to clipboard: ${tunnelCmd}\n\nPaste in your LOCAL terminal and replace <hostname>.`,
 			);
 		} else if (selection === 'Run Health Check') {
 			vscode.commands.executeCommand('ssh-relay-guard.diagnose');
@@ -423,7 +493,10 @@ export class RemoteModeController {
 	 * Diagnose startup state and return a structured result.
 	 * Separates diagnostics (pure data) from UI (side-effects).
 	 */
-	private async diagnoseStartup(proxyHost: string, proxyPort: number): Promise<{
+	private async diagnoseStartup(
+		proxyHost: string,
+		proxyPort: number,
+	): Promise<{
 		proxyReachable: boolean;
 		proxyActive: boolean;
 		proxyFunctional: boolean;
@@ -443,7 +516,9 @@ export class RemoteModeController {
 
 		this.log(`[Test 2] Checking if mgraftcp is running...`);
 		const proxyActive = await isMgraftcpRunning();
-		this.log(`  Result: ${proxyActive ? '✓ mgraftcp is running (proxy active)' : '✗ mgraftcp is NOT running'}`);
+		this.log(
+			`  Result: ${proxyActive ? '✓ mgraftcp is running (proxy active)' : '✗ mgraftcp is NOT running'}`,
+		);
 		this.log('');
 
 		this.log(`[Test 2.5] Checking Language Server process status...`);
@@ -451,8 +526,10 @@ export class RemoteModeController {
 		if (lsProcess) {
 			const modeLabel = lsProcess.isPersistent ? 'persistent mode' : 'normal mode';
 			const proxyLabel = lsProcess.isUsingProxy ? 'using proxy' : 'NOT using proxy';
-			const statusIcon = lsProcess.isUsingProxy ? '✓' : (lsProcess.isPersistent ? '✗' : '⚠');
-			this.log(`  Result: ${statusIcon} Language Server (PID ${lsProcess.pid}) is running in ${modeLabel}, ${proxyLabel}`);
+			const statusIcon = lsProcess.isUsingProxy ? '✓' : lsProcess.isPersistent ? '✗' : '⚠';
+			this.log(
+				`  Result: ${statusIcon} Language Server (PID ${lsProcess.pid}) is running in ${modeLabel}, ${proxyLabel}`,
+			);
 
 			if (lsProcess.isPersistent && !lsProcess.isUsingProxy) {
 				this.log(`  ⚠️ WARNING: LS is in persistent_mode but not using proxy!`);
@@ -487,10 +564,20 @@ export class RemoteModeController {
 			httpOk = httpRes;
 			socks5Ok = socks5Res;
 
-			const httpMarker = currentProxyType === 'http' ? (httpOk ? ' ← Current' : ' ← Current (⚠️ NOT WORKING)') : '';
+			const httpMarker =
+				currentProxyType === 'http'
+					? httpOk
+						? ' ← Current'
+						: ' ← Current (⚠️ NOT WORKING)'
+					: '';
 			this.log(`  Result (HTTP): ${httpOk ? '✓ OK' : '✗ Failed'}${httpMarker}`);
 
-			const socks5Marker = currentProxyType === 'socks5' ? (socks5Ok ? ' ← Current' : ' ← Current (⚠️ NOT WORKING)') : '';
+			const socks5Marker =
+				currentProxyType === 'socks5'
+					? socks5Ok
+						? ' ← Current'
+						: ' ← Current (⚠️ NOT WORKING)'
+					: '';
 			this.log(`  Result (SOCKS5): ${socks5Ok ? '✓ OK' : '✗ Failed'}${socks5Marker}`);
 			this.log('');
 		}
@@ -512,7 +599,11 @@ export class RemoteModeController {
 	 * Resolve startup diagnosis into a user-facing action.
 	 * Returns null if a special flow (first-run / tunnel warning) was shown instead.
 	 */
-	private async resolveStartupAction(proxyHost: string, proxyPort: number, diag: Awaited<ReturnType<typeof this.diagnoseStartup>>): Promise<{ message: string; actions: string[] } | null> {
+	private async resolveStartupAction(
+		proxyHost: string,
+		proxyPort: number,
+		diag: Awaited<ReturnType<typeof this.diagnoseStartup>>,
+	): Promise<{ message: string; actions: string[] } | null> {
 		const { proxyReachable, proxyActive, proxyFunctional, lsProcess } = diag;
 		const lsActuallyUsingProxy = lsProcess?.isUsingProxy ?? false;
 		const lsNeedsRestart = lsProcess && !lsActuallyUsingProxy;
@@ -533,7 +624,8 @@ export class RemoteModeController {
 		if (!proxyFunctional) {
 			this.log('Port is reachable but proxy connectivity test failed');
 			return {
-				message: `⚠️ Port ${proxyPort} is reachable but proxy is not responding. ` +
+				message:
+					`⚠️ Port ${proxyPort} is reachable but proxy is not responding. ` +
 					`The port may be occupied by another process, or the local proxy may not be running.`,
 				actions: ['Run Health Check', 'Open SRG Panel', 'Dismiss'],
 			};
@@ -546,17 +638,28 @@ export class RemoteModeController {
 
 		// Case 4: Proxy working but LS needs restart
 		if (lsNeedsRestart) {
-			this.log(`Startup: LS running (PID ${lsProcess!.pid}) but not using proxy, auto-fixing...`);
+			this.log(
+				`Startup: LS running (PID ${lsProcess!.pid}) but not using proxy, auto-fixing...`,
+			);
 			const killed = await killTargetProcess((m) => this.log(m));
 			if (killed) {
-				return { message: `🔄 Language Server stopped to apply proxy settings.`, actions: ['Reload Now', 'Later'] };
+				return {
+					message: `🔄 Language Server stopped to apply proxy settings.`,
+					actions: ['Reload Now', 'Later'],
+				};
 			}
-			return { message: `⚠️ Proxy configured but Language Server needs manual restart.`, actions: ['Kill & Reload', 'Dismiss'] };
+			return {
+				message: `⚠️ Proxy configured but Language Server needs manual restart.`,
+				actions: ['Kill & Reload', 'Dismiss'],
+			};
 		}
 
 		// Case 5: Proxy working but mgraftcp not active
 		if (!proxyActive) {
-			return { message: `⚠️ Proxy configured but not active. Reload to enable.`, actions: ['Reload Now', 'Dismiss'] };
+			return {
+				message: `⚠️ Proxy configured but not active. Reload to enable.`,
+				actions: ['Reload Now', 'Dismiss'],
+			};
 		}
 
 		// Fallback: unknown state
@@ -573,13 +676,17 @@ export class RemoteModeController {
 				break;
 			case 'Kill & Reload':
 				await killTargetProcess((m) => this.log(m));
-				vscode.window.showInformationMessage(
-					'🔄 Language Server stopped. Reload window to take effect.',
-					'Reload Now',
-					'Later'
-				).then(sel => {
-					if (sel === 'Reload Now') { vscode.commands.executeCommand('workbench.action.reloadWindow'); }
-				});
+				vscode.window
+					.showInformationMessage(
+						'🔄 Language Server stopped. Reload window to take effect.',
+						'Reload Now',
+						'Later',
+					)
+					.then((sel) => {
+						if (sel === 'Reload Now') {
+							vscode.commands.executeCommand('workbench.action.reloadWindow');
+						}
+					});
 				break;
 			case 'Run Health Check':
 				vscode.commands.executeCommand('ssh-relay-guard.diagnose');
@@ -598,12 +705,17 @@ export class RemoteModeController {
 			const diag = await this.diagnoseStartup(proxyHost, proxyPort);
 			const result = await this.resolveStartupAction(proxyHost, proxyPort, diag);
 
-			if (!result) { return; } // Special flow (first-run / tunnel warning) already shown
+			if (!result) {
+				return;
+			} // Special flow (first-run / tunnel warning) already shown
 
 			this.log(`Startup status: ${result.message}`);
 
 			if (result.actions.length > 0) {
-				const selection = await vscode.window.showInformationMessage(result.message, ...result.actions);
+				const selection = await vscode.window.showInformationMessage(
+					result.message,
+					...result.actions,
+				);
 				await this.handleStartupAction(selection);
 			} else {
 				vscode.window.showInformationMessage(result.message);

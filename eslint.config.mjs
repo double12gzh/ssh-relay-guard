@@ -1,27 +1,28 @@
 import typescriptEslint from "typescript-eslint";
+import eslintConfigPrettier from "eslint-config-prettier";
 
-export default [{
-    files: ["**/*.ts"],
-}, {
-    plugins: {
-        "@typescript-eslint": typescriptEslint.plugin,
+export default [
+    ...typescriptEslint.configs.recommended,
+    {
+        files: ["**/*.ts"],
+        languageOptions: {
+            parser: typescriptEslint.parser,
+            ecmaVersion: 2022,
+            sourceType: "module",
+        },
+        rules: {
+            "@typescript-eslint/naming-convention": ["warn", {
+                selector: "import",
+                format: ["camelCase", "PascalCase"],
+            }],
+            "curly": "error",
+            "eqeqeq": "error",
+            "no-throw-literal": "error",
+            "semi": "error",
+            "prefer-const": "warn",
+            "@typescript-eslint/no-explicit-any": "warn",
+            "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }]
+        }
     },
-
-    languageOptions: {
-        parser: typescriptEslint.parser,
-        ecmaVersion: 2022,
-        sourceType: "module",
-    },
-
-    rules: {
-        "@typescript-eslint/naming-convention": ["warn", {
-            selector: "import",
-            format: ["camelCase", "PascalCase"],
-        }],
-
-        curly: "warn",
-        eqeqeq: "warn",
-        "no-throw-literal": "warn",
-        semi: "warn",
-    },
-}];
+    eslintConfigPrettier
+];

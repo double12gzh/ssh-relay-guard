@@ -7,7 +7,11 @@
  * the DashboardManager business logic.
  */
 
-import { DiagnosticCheck, DiagnosticReport, ProtocolTestResult } from '../diagnostics/healthChecker';
+import {
+	DiagnosticCheck,
+	DiagnosticReport,
+	ProtocolTestResult,
+} from '../diagnostics/healthChecker';
 import { TrafficStats } from '../traffic/connectionMonitor';
 import { ProxyStatus } from './dashboardManager';
 import { Translations } from './translations';
@@ -19,25 +23,25 @@ import { buildClientScript } from './panelScript';
 // ---------------------------------------------------------------------------
 
 export interface PanelContext {
-    status: ProxyStatus;
-    t: Translations;
-    currentLang: string;
+	status: ProxyStatus;
+	t: Translations;
+	currentLang: string;
 
-    // VS Code config values (read once by caller, passed here)
-    enableForwarding: boolean;
-    proxyType: string;
-    rewriteCloudCodeEndpoint: boolean;
+	// VS Code config values (read once by caller, passed here)
+	enableForwarding: boolean;
+	proxyType: string;
+	rewriteCloudCodeEndpoint: boolean;
 
-    // Diagnostic state
-    diagnosticReport: DiagnosticReport | null;
-    isRunningDiagnostics: boolean;
+	// Diagnostic state
+	diagnosticReport: DiagnosticReport | null;
+	isRunningDiagnostics: boolean;
 
-    // Traffic state
-    trafficStats: TrafficStats;
-    sessionDuration: string;
+	// Traffic state
+	trafficStats: TrafficStats;
+	sessionDuration: string;
 
-    // Countdown
-    secondsUntilRefresh: number;
+	// Countdown
+	secondsUntilRefresh: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,8 +49,8 @@ export interface PanelContext {
 // ---------------------------------------------------------------------------
 
 export interface StatusAppearance {
-    color: string;
-    text: string;
+	color: string;
+	text: string;
 }
 
 /**
@@ -54,36 +58,36 @@ export interface StatusAppearance {
  * Single source of truth for the 3-state (connected/partial/disconnected) logic.
  */
 export function resolveStatusAppearance(
-    status: ProxyStatus,
-    t: Pick<Translations, 'connected' | 'partial' | 'disconnected' | 'notSetup'>
+	status: ProxyStatus,
+	t: Pick<Translations, 'connected' | 'partial' | 'disconnected' | 'notSetup'>,
 ): StatusAppearance {
-    const isLocal = status.runningLocation === 'local';
-    if (isLocal) {
-        if (status.sshConfigEnabled && status.localProxyReachable) {
-            return { color: '#34d399', text: t.connected };
-        } else if (status.sshConfigEnabled) {
-            return { color: '#fbbf24', text: t.partial };
-        }
-        // No hosts configured yet → show "Not Setup" (yellow) instead of "Disconnected" (red)
-        if (status.hasConfiguredHosts === false) {
-            return { color: '#fbbf24', text: t.notSetup };
-        }
-        return { color: '#f87171', text: t.disconnected };
-    }
-    // Remote: if setup hasn't been completed, show "not setup" regardless of port reachability
-    if (status.remoteSetupCompleted === false) {
-        return { color: '#fbbf24', text: t.notSetup };
-    }
-    // Green only when proxy protocol handshake succeeds (not just TCP port open)
-    if (status.remoteProxyFunctional) {
-        return { color: '#34d399', text: t.connected };
-    }
-    // Port reachable but proxy handshake failed → partial (yellow)
-    // This catches: port occupied by another process, local proxy not running, etc.
-    if (status.remoteProxyReachable) {
-        return { color: '#fbbf24', text: t.partial };
-    }
-    return { color: '#f87171', text: t.disconnected };
+	const isLocal = status.runningLocation === 'local';
+	if (isLocal) {
+		if (status.sshConfigEnabled && status.localProxyReachable) {
+			return { color: '#34d399', text: t.connected };
+		} else if (status.sshConfigEnabled) {
+			return { color: '#fbbf24', text: t.partial };
+		}
+		// No hosts configured yet → show "Not Setup" (yellow) instead of "Disconnected" (red)
+		if (status.hasConfiguredHosts === false) {
+			return { color: '#fbbf24', text: t.notSetup };
+		}
+		return { color: '#f87171', text: t.disconnected };
+	}
+	// Remote: if setup hasn't been completed, show "not setup" regardless of port reachability
+	if (status.remoteSetupCompleted === false) {
+		return { color: '#fbbf24', text: t.notSetup };
+	}
+	// Green only when proxy protocol handshake succeeds (not just TCP port open)
+	if (status.remoteProxyFunctional) {
+		return { color: '#34d399', text: t.connected };
+	}
+	// Port reachable but proxy handshake failed → partial (yellow)
+	// This catches: port occupied by another process, local proxy not running, etc.
+	if (status.remoteProxyReachable) {
+		return { color: '#fbbf24', text: t.partial };
+	}
+	return { color: '#f87171', text: t.disconnected };
 }
 
 // ---------------------------------------------------------------------------
@@ -91,16 +95,16 @@ export function resolveStatusAppearance(
 // ---------------------------------------------------------------------------
 
 export function buildPanelHtml(ctx: PanelContext): string {
-    const { status, t } = ctx;
-    const isLocal = status.runningLocation === 'local';
+	const { status, t } = ctx;
+	const isLocal = status.runningLocation === 'local';
 
-    const { color: statusColor, text: statusText } = resolveStatusAppearance(status, t);
+	const { color: statusColor, text: statusText } = resolveStatusAppearance(status, t);
 
-    const diagnosticsHtml = buildDiagnosticsHtml(ctx, isLocal);
-    const trafficHtml = buildTrafficHtml(ctx, isLocal);
-    const statsStripHtml = buildStatsStrip(ctx, isLocal);
+	const diagnosticsHtml = buildDiagnosticsHtml(ctx, isLocal);
+	const trafficHtml = buildTrafficHtml(ctx, isLocal);
+	const statsStripHtml = buildStatsStrip(ctx, isLocal);
 
-    return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -197,30 +201,38 @@ export function buildPanelHtml(ctx: PanelContext): string {
 // Traffic HTML (also called from DashboardManager for live postMessage updates)
 // ---------------------------------------------------------------------------
 
-export function buildTrafficHtml(ctx: Pick<PanelContext, 't' | 'trafficStats' | 'sessionDuration' | 'status'>, isLocal: boolean): string {
-    const { t, trafficStats, sessionDuration, status } = ctx;
+export function buildTrafficHtml(
+	ctx: Pick<PanelContext, 't' | 'trafficStats' | 'sessionDuration' | 'status'>,
+	isLocal: boolean,
+): string {
+	const { t, trafficStats, sessionDuration, status } = ctx;
 
-    if (isLocal) {
-        const hosts = status.configuredHosts ?? [];
-        const hostListHtml = hosts.length > 0
-            ? hosts.map(h => `
+	if (isLocal) {
+		const hosts = status.configuredHosts ?? [];
+		const hostListHtml =
+			hosts.length > 0
+				? hosts
+						.map(
+							(h) => `
                 <div class="host-row">
                     <div class="host-dot"></div>
                     <span class="host-name">${h}</span>
                     <span class="host-port">:${status.remoteProxyPort}</span>
-                </div>`).join('')
-            : `<div class="t-unavail">${t.noHostsYet}</div>`;
+                </div>`,
+						)
+						.join('')
+				: `<div class="t-unavail">${t.noHostsYet}</div>`;
 
-        return `
+		return `
             <div class="section" style="margin-bottom:0">
                 <div class="section-head"><span class="section-label">${t.configuredHosts}</span></div>
                 <div class="section-body">
                     ${hostListHtml}
                 </div>
             </div>`;
-    }
+	}
 
-    return `
+	return `
         <div class="section" style="margin-bottom:0">
             <div class="section-head"><span class="section-label">${t.traffic}</span></div>
             <div class="section-body">
@@ -247,21 +259,24 @@ export function buildTrafficHtml(ctx: Pick<PanelContext, 't' | 'trafficStats' | 
 // ---------------------------------------------------------------------------
 
 function buildStatsStrip(ctx: PanelContext, isLocal: boolean): string {
-    const { status, t } = ctx;
+	const { status, t } = ctx;
 
-    if (isLocal) {
-        let sshClass: string;
-        let sshText: string;
-        if (status.sshConfigEnabled) {
-            sshClass = 'g'; sshText = t.on;
-        } else if (status.hasConfiguredHosts === false) {
-            sshClass = 'a'; sshText = t.notSetup;
-        } else {
-            sshClass = 'r'; sshText = t.off;
-        }
-        const proxyClass = status.localProxyReachable ? 'g' : 'r';
-        const proxyText = status.localProxyReachable ? t.reachable : t.unreachable;
-        return `
+	if (isLocal) {
+		let sshClass: string;
+		let sshText: string;
+		if (status.sshConfigEnabled) {
+			sshClass = 'g';
+			sshText = t.on;
+		} else if (status.hasConfiguredHosts === false) {
+			sshClass = 'a';
+			sshText = t.notSetup;
+		} else {
+			sshClass = 'r';
+			sshText = t.off;
+		}
+		const proxyClass = status.localProxyReachable ? 'g' : 'r';
+		const proxyText = status.localProxyReachable ? t.reachable : t.unreachable;
+		return `
             <div class="stat-chip">
                 <div class="stat-dot ${sshClass}"></div>
                 <span class="stat-label" id="ssh-fwd-label">${t.sshForwarding}</span>
@@ -272,17 +287,16 @@ function buildStatsStrip(ctx: PanelContext, isLocal: boolean): string {
                 <span class="stat-label">${t.localProxy}</span>
                 <span class="stat-val ${proxyClass}" id="local-proxy-val">${proxyText}</span>
             </div>`;
-    }
+	}
 
-    const proxyClass = status.remoteProxyFunctional ? 'g' : (status.remoteProxyReachable ? 'a' : 'r');
-    const proxyText = status.remoteProxyFunctional ? t.reachable : t.unreachable;
-    const lsConfigured = status.languageServerConfigured;
-    const lsClass = lsConfigured ? 'g' : 'r';
-    const lsText = lsConfigured !== undefined
-        ? (lsConfigured ? t.configured : t.notConfigured)
-        : '';
+	const proxyClass = status.remoteProxyFunctional ? 'g' : status.remoteProxyReachable ? 'a' : 'r';
+	const proxyText = status.remoteProxyFunctional ? t.reachable : t.unreachable;
+	const lsConfigured = status.languageServerConfigured;
+	const lsClass = lsConfigured ? 'g' : 'r';
+	const lsText =
+		lsConfigured !== undefined ? (lsConfigured ? t.configured : t.notConfigured) : '';
 
-    return `
+	return `
         <div class="stat-chip">
             <div class="stat-dot ${proxyClass}"></div>
             <span class="stat-label">${t.proxy}</span>
@@ -300,123 +314,145 @@ function buildStatsStrip(ctx: PanelContext, isLocal: boolean): string {
 // ---------------------------------------------------------------------------
 
 function buildDiagnosticsHtml(ctx: PanelContext, isLocal: boolean): string {
-    const { t, diagnosticReport } = ctx;
+	const { t, diagnosticReport } = ctx;
 
-    const checks: DiagnosticCheck[] = diagnosticReport?.checks ?? [
-        { id: 'local-proxy',           name: 'Local Proxy Service',     status: 'pending' },
-        { id: 'ssh-config',            name: 'SSH Configuration',       status: 'pending' },
-        { id: 'remote-forward',        name: 'Remote Port Forwarding',  status: 'pending' },
-        { id: 'mgraftcp',              name: 'mgraftcp Binary',          status: 'pending' },
-        { id: 'ls-wrapper',            name: 'Language Server Wrapper', status: 'pending' },
-        { id: 'external-connectivity', name: 'External Connectivity',   status: 'pending' },
-    ];
+	const checks: DiagnosticCheck[] = diagnosticReport?.checks ?? [
+		{ id: 'local-proxy', name: 'Local Proxy Service', status: 'pending' },
+		{ id: 'ssh-config', name: 'SSH Configuration', status: 'pending' },
+		{ id: 'remote-forward', name: 'Remote Port Forwarding', status: 'pending' },
+		{ id: 'mgraftcp', name: 'mgraftcp Binary', status: 'pending' },
+		{ id: 'ls-wrapper', name: 'Language Server Wrapper', status: 'pending' },
+		{ id: 'external-connectivity', name: 'External Connectivity', status: 'pending' },
+	];
 
-    // Filter: only show checks relevant to the current environment
-    const LOCAL_CHECK_IDS = ['local-proxy', 'ssh-config'];
-    const relevantChecks = checks.filter(check => {
-        const isLocalCheck = LOCAL_CHECK_IDS.includes(check.id);
-        return isLocal ? isLocalCheck : !isLocalCheck;
-    });
+	// Filter: only show checks relevant to the current environment
+	const LOCAL_CHECK_IDS = ['local-proxy', 'ssh-config'];
+	const relevantChecks = checks.filter((check) => {
+		const isLocalCheck = LOCAL_CHECK_IDS.includes(check.id);
+		return isLocal ? isLocalCheck : !isLocalCheck;
+	});
 
-    return relevantChecks.map(check => {
-        const { statusText, statusClass } = resolveCheckStatus(check, false, isLocal, t);
-        const message        = check.message;
-        const suggestion     = check.suggestion;
-        const fixAction      = check.fixAction;
-        const protocolResults = check.protocolResults;
-        const hasDetails     = message || suggestion || protocolResults;
-        const protocolHtml   = buildProtocolListHtml(check, protocolResults);
-        const dotClass       = STATUS_TO_DOT[check.status] ?? 'p';
+	return relevantChecks
+		.map((check) => {
+			const { statusText, statusClass } = resolveCheckStatus(check, false, isLocal, t);
+			const message = check.message;
+			const suggestion = check.suggestion;
+			const fixAction = check.fixAction;
+			const protocolResults = check.protocolResults;
+			const hasDetails = message || suggestion || protocolResults;
+			const protocolHtml = buildProtocolListHtml(check, protocolResults);
+			const dotClass = STATUS_TO_DOT[check.status] ?? 'p';
 
-        // Build fix button HTML if fixAction is available
-        let fixBtnHtml = '';
-        if (fixAction) {
-            const escaped = fixAction.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-            if (fixAction.startsWith('copyCommand:')) {
-                fixBtnHtml = `<button class="ab ab-fix ab-sm" onclick="fixDiag('${escaped}')">${t.copyCmd}</button>`;
-            } else {
-                fixBtnHtml = `<button class="ab ab-fix ab-sm" onclick="fixDiag('${escaped}')">${t.fix}</button>`;
-            }
-        }
+			// Build fix button HTML if fixAction is available
+			let fixBtnHtml = '';
+			if (fixAction) {
+				const escaped = fixAction.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+				if (fixAction.startsWith('copyCommand:')) {
+					fixBtnHtml = `<button class="ab ab-fix ab-sm" onclick="fixDiag('${escaped}')">${t.copyCmd}</button>`;
+				} else {
+					fixBtnHtml = `<button class="ab ab-fix ab-sm" onclick="fixDiag('${escaped}')">${t.fix}</button>`;
+				}
+			}
 
-        return `
+			return `
             <div class="diag-wrap">
                 <div class="diag">
                     <div class="diag-d ${dotClass}"></div>
                     <span class="diag-n">${getDiagCheckName(check.id, t)}</span>
                     <span class="diag-s ${statusClass}">${statusText}</span>
                 </div>
-                ${hasDetails ? `
+                ${
+					hasDetails
+						? `
                 <div class="diag-detail">
                     ${protocolHtml}
                     ${message && !protocolResults ? `<div class="diag-msg">${message}</div>` : ''}
-                    ${suggestion ? `<div class="diag-tip-row">
+                    ${
+						suggestion
+							? `<div class="diag-tip-row">
                         <div class="diag-tip">💡 ${suggestion}</div>
                         ${fixBtnHtml}
-                    </div>` : ''}
-                </div>` : ''}
+                    </div>`
+							: ''
+					}
+                </div>`
+						: ''
+				}
             </div>`;
-    }).join('');
+		})
+		.join('');
 }
 
 const STATUS_TO_DOT: Record<string, string> = {
-    success: 's',
-    warning: 'w',
-    error: 'e',
-    running: 'run',
-    pending: 'p',
+	success: 's',
+	warning: 'w',
+	error: 'e',
+	running: 'run',
+	pending: 'p',
 };
 
 function resolveCheckStatus(
-    check: DiagnosticCheck,
-    isDisabled: boolean,
-    isLocal: boolean,
-    t: Translations
+	check: DiagnosticCheck,
+	isDisabled: boolean,
+	isLocal: boolean,
+	t: Translations,
 ): { statusText: string; statusClass: string } {
-    if (isDisabled) {
-        return { statusText: isLocal ? t.remoteOnly : t.localOnly, statusClass: '' };
-    }
-    switch (check.status) {
-        case 'success': return { statusText: '✓', statusClass: 's' };
-        case 'warning': return { statusText: '!', statusClass: 'w' };
-        case 'error':   return { statusText: '✗', statusClass: 'e' };
-        case 'running': return { statusText: '...', statusClass: '' };
-        default:        return { statusText: t.pending, statusClass: '' };
-    }
+	if (isDisabled) {
+		return { statusText: isLocal ? t.remoteOnly : t.localOnly, statusClass: '' };
+	}
+	switch (check.status) {
+		case 'success':
+			return { statusText: '✓', statusClass: 's' };
+		case 'warning':
+			return { statusText: '!', statusClass: 'w' };
+		case 'error':
+			return { statusText: '✗', statusClass: 'e' };
+		case 'running':
+			return { statusText: '...', statusClass: '' };
+		default:
+			return { statusText: t.pending, statusClass: '' };
+	}
 }
 
-function buildProtocolListHtml(check: DiagnosticCheck, protocolResults?: ProtocolTestResult[]): string {
-    if (check.id !== 'external-connectivity' || !protocolResults?.length) { return ''; }
+function buildProtocolListHtml(
+	check: DiagnosticCheck,
+	protocolResults?: ProtocolTestResult[],
+): string {
+	if (check.id !== 'external-connectivity' || !protocolResults?.length) {
+		return '';
+	}
 
-    const rows = protocolResults.map((result, index) => {
-        const isLast  = index === protocolResults.length - 1;
-        const prefix  = isLast ? '└─' : '├─';
-        const icon    = result.success ? '✓' : '✗';
-        const cls     = result.success ? 'g' : 'r';
-        const label   = result.success ? 'OK' : 'Blocked';
-        const current = result.isCurrent ? ` ← Current` : '';
-        return `
+	const rows = protocolResults
+		.map((result, index) => {
+			const isLast = index === protocolResults.length - 1;
+			const prefix = isLast ? '└─' : '├─';
+			const icon = result.success ? '✓' : '✗';
+			const cls = result.success ? 'g' : 'r';
+			const label = result.success ? 'OK' : 'Blocked';
+			const current = result.isCurrent ? ` ← Current` : '';
+			return `
             <div class="proto-row">
                 <span class="proto-pre">${prefix}</span>
                 <span class="proto-name">${result.protocol.toUpperCase()}</span>
                 <span class="proto-st ${cls}">${icon} ${label}</span>
                 ${result.isCurrent ? `<span class="proto-cur">${current}</span>` : ''}
             </div>`;
-    }).join('');
+		})
+		.join('');
 
-    return `<div class="proto-list">${rows}</div>`;
+	return `<div class="proto-list">${rows}</div>`;
 }
 
 function getDiagCheckName(id: string, t: Translations): string {
-    const names: Record<string, string> = {
-        'local-proxy':           t.localProxyService,
-        'ssh-config':            t.sshConfig,
-        'remote-forward':        t.remoteForward,
-        'mgraftcp':              t.mgraftcp,
-        'ls-wrapper':            t.lsWrapper,
-        'external-connectivity': t.externalConn,
-    };
-    return names[id] ?? id;
+	const names: Record<string, string> = {
+		'local-proxy': t.localProxyService,
+		'ssh-config': t.sshConfig,
+		'remote-forward': t.remoteForward,
+		mgraftcp: t.mgraftcp,
+		'ls-wrapper': t.lsWrapper,
+		'external-connectivity': t.externalConn,
+	};
+	return names[id] ?? id;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,11 +460,11 @@ function getDiagCheckName(id: string, t: Translations): string {
 // ---------------------------------------------------------------------------
 
 function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
-    const port = status.remoteProxyPort;
-    const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} <hostname>`;
-    const escapedCmd = tunnelCmd.replace(/'/g, "\\'");
+	const port = status.remoteProxyPort;
+	const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} <hostname>`;
+	const escapedCmd = tunnelCmd.replace(/'/g, "\\'");
 
-    return `
+	return `
         <!-- Warning Alert: always in DOM for remote mode, visibility controlled by JS -->
         <div id="tunnel-alert" class="alert-banner" style="${!status.remoteProxyFunctional ? '' : 'display:none;'}">
             <div class="alert-ico">⚠</div>
@@ -458,8 +494,8 @@ function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
 }
 
 function buildLocalConfigSection(ctx: PanelContext): string {
-    const { status, t, enableForwarding } = ctx;
-    return `
+	const { status, t, enableForwarding } = ctx;
+	return `
         <div class="prop">
             <span class="prop-k">${t.enableForwarding}</span>
             <label class="sw">
@@ -481,8 +517,8 @@ function buildLocalConfigSection(ctx: PanelContext): string {
 }
 
 function buildRemoteConfigSection(ctx: PanelContext): string {
-    const { status, t, proxyType } = ctx;
-    return `
+	const { status, t, proxyType } = ctx;
+	return `
         <div class="prop">
             <span class="prop-k">${t.proxyHost}</span>
             <span class="prop-v">${status.remoteProxyHost}</span>
@@ -510,7 +546,7 @@ function buildRemoteConfigSection(ctx: PanelContext): string {
 }
 
 function buildLocalTips(t: Translations): string {
-    return `
+	return `
         <div class="tips-title">${t.tipTitleLocal}</div>
         <ul class="step-list">
             <li class="step-item"><span class="step-n">1</span><span>${t.tipStep1Local}</span></li>
@@ -522,7 +558,7 @@ function buildLocalTips(t: Translations): string {
 }
 
 function buildRemoteTips(t: Translations): string {
-    return `
+	return `
         <div class="tips-title">${t.tipTitleRemote}</div>
         <ul class="step-list">
             <li class="step-item"><span class="step-n">1</span><span>${t.tipStep1Remote}</span></li>
@@ -541,14 +577,10 @@ function buildRemoteTips(t: Translations): string {
 // CSS — v3 "Clean Control Panel" design system
 // ---------------------------------------------------------------------------
 
-
-
 function buildStyles(statusColor: string): string {
-    return `:root { --status-color: ${statusColor}; }\n${STATIC_CSS}`;
+	return `:root { --status-color: ${statusColor}; }\n${STATIC_CSS}`;
 }
 
 // ---------------------------------------------------------------------------
 // Client-side JavaScript (runs inside WebView, NOT in Node.js)
 // ---------------------------------------------------------------------------
-
-

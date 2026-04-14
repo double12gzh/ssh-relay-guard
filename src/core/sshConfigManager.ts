@@ -13,7 +13,7 @@ export const SRG_CONFIG_FILENAME = 'config.srg';
 export const INCLUDE_LINE = `Include ${SRG_CONFIG_FILENAME}`;
 
 // Test override hook
-export let customHomedirForTesting: string | undefined = undefined;
+export const customHomedirForTesting: string | undefined = undefined;
 
 export function getSSHDir(): string {
 	return path.join(customHomedirForTesting ?? os.homedir(), '.ssh');
@@ -39,10 +39,9 @@ function buildHostBlockRegex(hostname: string): RegExp {
 	const hostMarkerEnd = `# --- SRG:${hostname} END ---`;
 	return new RegExp(
 		`${hostMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${hostMarkerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`,
-		'g'
+		'g',
 	);
 }
-
 
 /**
  * Update SSH config using per-host marker blocks in config.srg.
@@ -54,7 +53,7 @@ export async function updateForHost(
 	remotePort: number,
 	localPort: number,
 	enable: boolean,
-	log: (msg: string) => void
+	log: (msg: string) => void,
 ): Promise<void> {
 	const srgConfigPath = getSrgConfigPath();
 	const mainConfigPath = getSSHConfigPath();
@@ -70,16 +69,19 @@ export async function updateForHost(
 			let srgContent = '';
 			try {
 				srgContent = await fs.readFile(srgConfigPath, 'utf-8');
-			} catch { log(`config.srg not found, will create`); }
+			} catch {
+				log(`config.srg not found, will create`);
+			}
 
 			if (srgContent.includes(hostMarker)) {
 				srgContent = srgContent.replace(buildHostBlockRegex(hostname), '');
 			}
 
 			if (!srgContent.trim()) {
-				srgContent = '# SSH Relay Guard — Tunnel & Proxy Config\n'
-					+ '# Shared config for Antigravity plugin and srg-cli.\n'
-					+ '# Per-host blocks are managed automatically.\n\n';
+				srgContent =
+					'# SSH Relay Guard — Tunnel & Proxy Config\n' +
+					'# Shared config for Antigravity plugin and srg-cli.\n' +
+					'# Per-host blocks are managed automatically.\n\n';
 			}
 
 			const hostBlock = [
@@ -104,13 +106,18 @@ export async function updateForHost(
 			let mainContent = '';
 			try {
 				mainContent = await fs.readFile(mainConfigPath, 'utf-8');
-			} catch { log(`~/.ssh/config not found, will create`); }
+			} catch {
+				log(`~/.ssh/config not found, will create`);
+			}
 
 			// Always ensure INCLUDE_LINE is exactly at the end by removing older ones first
 			if (mainContent.includes(INCLUDE_LINE)) {
-				mainContent = mainContent.split('\n').filter(line => line.trim() !== INCLUDE_LINE).join('\n');
+				mainContent = mainContent
+					.split('\n')
+					.filter((line) => line.trim() !== INCLUDE_LINE)
+					.join('\n');
 			}
-			
+
 			mainContent = mainContent.trimEnd() + `\n\n${INCLUDE_LINE}\n`;
 			await fs.writeFile(mainConfigPath, mainContent.trimStart(), { mode: 0o600 });
 			log(`Added/Moved Include line to the end of ${mainConfigPath}`);
@@ -124,16 +131,24 @@ export async function updateForHost(
 				}
 
 				if (!srgContent.includes('# --- SRG:')) {
-					try { await fs.unlink(srgConfigPath); } catch { log(`config.srg already removed`); }
+					try {
+						await fs.unlink(srgConfigPath);
+					} catch {
+						log(`config.srg already removed`);
+					}
 					try {
 						let mainContent = await fs.readFile(mainConfigPath, 'utf-8');
 						mainContent = mainContent.replace(`${INCLUDE_LINE}\n`, '');
 						mainContent = mainContent.replace(INCLUDE_LINE, '');
 						await fs.writeFile(mainConfigPath, mainContent, { mode: 0o600 });
-					} catch { log(`Could not update ~/.ssh/config Include line`); }
+					} catch {
+						log(`Could not update ~/.ssh/config Include line`);
+					}
 					log('All host blocks removed, cleaned up config.srg and Include line');
 				}
-			} catch (e) { log(`Host block removal skipped: ${e}`); }
+			} catch (e) {
+				log(`Host block removal skipped: ${e}`);
+			}
 		}
 
 		log(`SSH config updated for ${hostname} (enable=${enable})`);
@@ -146,9 +161,11 @@ export async function updateForHost(
 /**
  * Get SSH config status by reading config.srg marker blocks.
  */
-export async function readStatus(hostname?: string): Promise<{ enabled: boolean; port?: number; hosts?: string[] }> {
+export async function readStatus(
+	hostname?: string,
+): Promise<{ enabled: boolean; port?: number; hosts?: string[] }> {
 	const allStatus = await readAllStatus();
-	
+
 	if (hostname) {
 		const hostData = allStatus.hostData.get(hostname);
 		return {

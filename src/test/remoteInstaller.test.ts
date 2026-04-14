@@ -1,5 +1,9 @@
 import * as assert from 'assert';
-import { buildRestoreScript, buildInstallScript, customReadFileForTesting } from '../setup/remoteInstaller';
+import {
+	buildRestoreScript,
+	buildInstallScript,
+	customReadFileForTesting,
+} from '../setup/remoteInstaller';
 import * as fs from 'fs/promises';
 import * as sinon from 'sinon';
 import * as path from 'path';
@@ -9,7 +13,6 @@ import * as path from 'path';
  * buildRestoreScript is a pure function that generates a bash rollback script.
  */
 suite('Remote Installer', () => {
-
 	teardown(() => {
 		sinon.restore();
 		(customReadFileForTesting as any) = undefined;
@@ -17,31 +20,34 @@ suite('Remote Installer', () => {
 
 	suite('buildRestoreScript', () => {
 		test('should return a valid bash script', () => {
-		const script = buildRestoreScript();
+			const script = buildRestoreScript();
 
-		assert.ok(script.startsWith('#!/bin/bash'), 'Should start with shebang');
-		assert.ok(script.includes('set -e'), 'Should use strict mode');
-	});
+			assert.ok(script.startsWith('#!/bin/bash'), 'Should start with shebang');
+			assert.ok(script.includes('set -e'), 'Should use strict mode');
+		});
 
-	test('buildRestoreScript should search antigravity-server path', () => {
-		const script = buildRestoreScript();
+		test('buildRestoreScript should search antigravity-server path', () => {
+			const script = buildRestoreScript();
 
-		assert.ok(script.includes('.antigravity-server'), 'Should search antigravity-server');
-	});
+			assert.ok(script.includes('.antigravity-server'), 'Should search antigravity-server');
+		});
 
-	test('buildRestoreScript should restore .bak files', () => {
-		const script = buildRestoreScript();
+		test('buildRestoreScript should restore .bak files', () => {
+			const script = buildRestoreScript();
 
-		assert.ok(script.includes('.bak'), 'Should reference backup files');
-		assert.ok(script.includes('mv'), 'Should move backups back to originals');
-		assert.ok(script.includes('Rollback complete'), 'Should print completion message');
-	});
+			assert.ok(script.includes('.bak'), 'Should reference backup files');
+			assert.ok(script.includes('mv'), 'Should move backups back to originals');
+			assert.ok(script.includes('Rollback complete'), 'Should print completion message');
+		});
 
-	test('buildRestoreScript should handle "nothing to rollback" case', () => {
-		const script = buildRestoreScript();
+		test('buildRestoreScript should handle "nothing to rollback" case', () => {
+			const script = buildRestoreScript();
 
-		assert.ok(script.includes('Nothing to rollback'), 'Should handle empty case gracefully');
-	});
+			assert.ok(
+				script.includes('Nothing to rollback'),
+				'Should handle empty case gracefully',
+			);
+		});
 	});
 
 	suite('buildInstallScript', () => {
@@ -70,13 +76,16 @@ suite('Remote Installer', () => {
 			assert.ok(script.includes('SRG_ON_CONTENT'), 'Should inject srg-on');
 			assert.ok(script.includes('__SRG_PORT_PH__'), 'Should transform srg-on placeholder');
 			assert.ok(script.includes('WRAPPER_CONTENT'), 'Should inject ls-wrapper');
-			assert.ok(script.includes('__PROXY_ADDR_PLACEHOLDER__'), 'Should transform ls-wrapper placeholder');
+			assert.ok(
+				script.includes('__PROXY_ADDR_PLACEHOLDER__'),
+				'Should transform ls-wrapper placeholder',
+			);
 		});
 
 		test('should throw error on invalid proxy host', async () => {
 			await assert.rejects(
 				buildInstallScript('invalid host!', 8080, true, '/fake/ext'),
-				/Invalid proxy host/
+				/Invalid proxy host/,
 			);
 		});
 	});

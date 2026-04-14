@@ -5,18 +5,33 @@ import { exec, execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { getSSHSocketDir } from './sshConfigManager';
 
-export let customExecAsyncForTesting: ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>) | undefined = undefined;
-export let customExecFileAsyncForTesting: ((file: string, args: readonly string[], options?: any) => Promise<{ stdout: string; stderr: string }>) | undefined = undefined;
-export let customSpawnForTesting: typeof spawn | undefined = undefined;
+export const customExecAsyncForTesting:
+	| ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>)
+	| undefined = undefined;
+export const customExecFileAsyncForTesting:
+	| ((
+			file: string,
+			args: readonly string[],
+			options?: any,
+	  ) => Promise<{ stdout: string; stderr: string }>)
+	| undefined = undefined;
+export const customSpawnForTesting: typeof spawn | undefined = undefined;
 
 const _execAsync = promisify(exec);
-const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+const execAsync = async (
+	cmd: string,
+	options?: any,
+): Promise<{ stdout: string; stderr: string }> => {
 	if (customExecAsyncForTesting) return customExecAsyncForTesting(cmd, options);
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
 };
 const _execFileAsync = promisify(execFile);
-const execFileAsync = async (file: string, args: readonly string[], options?: any): Promise<{ stdout: string; stderr: string }> => {
+const execFileAsync = async (
+	file: string,
+	args: readonly string[],
+	options?: any,
+): Promise<{ stdout: string; stderr: string }> => {
 	if (customExecFileAsyncForTesting) return customExecFileAsyncForTesting(file, args, options);
 	const res = await _execFileAsync(file, args, options);
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
@@ -125,22 +140,32 @@ export class TunnelManager implements vscode.Disposable {
 		hostname: string,
 		localPort: number,
 		remotePort: number,
-		controlPath: string
+		controlPath: string,
 	): Promise<boolean> {
 		this.log(`TunnelManager: starting autossh tunnel for ${hostname}`);
 
 		const args = [
-			'-M', '0', // Disable autossh's own monitoring, rely on ServerAliveInterval
-			'-N',      // No remote command
-			'-R', `${remotePort}:127.0.0.1:${localPort}`,
-			'-o', 'BatchMode=yes',
-			'-o', 'ConnectTimeout=15',
-			'-o', 'ServerAliveInterval=30',
-			'-o', 'ServerAliveCountMax=3',
-			'-o', 'ExitOnForwardFailure=yes',
-			'-o', 'ControlMaster=auto',
-			'-o', `ControlPath=${controlPath}`,
-			'-o', 'ControlPersist=4h',
+			'-M',
+			'0', // Disable autossh's own monitoring, rely on ServerAliveInterval
+			'-N', // No remote command
+			'-R',
+			`${remotePort}:127.0.0.1:${localPort}`,
+			'-o',
+			'BatchMode=yes',
+			'-o',
+			'ConnectTimeout=15',
+			'-o',
+			'ServerAliveInterval=30',
+			'-o',
+			'ServerAliveCountMax=3',
+			'-o',
+			'ExitOnForwardFailure=yes',
+			'-o',
+			'ControlMaster=auto',
+			'-o',
+			`ControlPath=${controlPath}`,
+			'-o',
+			'ControlPersist=4h',
 			hostname,
 		];
 
@@ -175,7 +200,9 @@ export class TunnelManager implements vscode.Disposable {
 			try {
 				process.kill(pid, 0); // Signal 0 = just check existence
 			} catch {
-				this.log(`TunnelManager: autossh process ${pid} exited immediately — connection failed`);
+				this.log(
+					`TunnelManager: autossh process ${pid} exited immediately — connection failed`,
+				);
 				return false;
 			}
 
@@ -196,11 +223,12 @@ export class TunnelManager implements vscode.Disposable {
 				this.log(`TunnelManager: autossh tunnel for ${hostname} established (PID ${pid})`);
 				return true;
 			} else {
-				this.log(`TunnelManager: autossh started (PID ${pid}) but tunnel not verified yet — will monitor`);
+				this.log(
+					`TunnelManager: autossh started (PID ${pid}) but tunnel not verified yet — will monitor`,
+				);
 				// Still return true — autossh will retry
 				return true;
 			}
-
 		} catch (error) {
 			this.log(`TunnelManager: failed to start autossh: ${error}`);
 			return false;
@@ -214,9 +242,11 @@ export class TunnelManager implements vscode.Disposable {
 		hostname: string,
 		localPort: number,
 		remotePort: number,
-		controlPath: string
+		controlPath: string,
 	): Promise<boolean> {
-		this.log(`TunnelManager: starting plain ssh tunnel for ${hostname} (autossh not available)`);
+		this.log(
+			`TunnelManager: starting plain ssh tunnel for ${hostname} (autossh not available)`,
+		);
 
 		const maxAttempts = 2;
 		let lastError = '';
@@ -225,20 +255,30 @@ export class TunnelManager implements vscode.Disposable {
 			try {
 				const args = [
 					'-fN',
-					'-R', `${remotePort}:127.0.0.1:${localPort}`,
-					'-o', 'BatchMode=yes',
-					'-o', 'ConnectTimeout=15',
-					'-o', 'ServerAliveInterval=30',
-					'-o', 'ExitOnForwardFailure=yes',
-					'-o', 'ControlMaster=auto',
-					'-o', `ControlPath=${controlPath}`,
-					'-o', 'ControlPersist=4h',
-					hostname
+					'-R',
+					`${remotePort}:127.0.0.1:${localPort}`,
+					'-o',
+					'BatchMode=yes',
+					'-o',
+					'ConnectTimeout=15',
+					'-o',
+					'ServerAliveInterval=30',
+					'-o',
+					'ExitOnForwardFailure=yes',
+					'-o',
+					'ControlMaster=auto',
+					'-o',
+					`ControlPath=${controlPath}`,
+					'-o',
+					'ControlPersist=4h',
+					hostname,
 				];
 
 				await execFileAsync('ssh', args, { timeout: 20000 });
 
-				this.log(`TunnelManager: ssh tunnel for ${hostname} established (attempt ${attempt})`);
+				this.log(
+					`TunnelManager: ssh tunnel for ${hostname} established (attempt ${attempt})`,
+				);
 
 				// Get background ssh PID via ControlMaster check
 				let pid = 0;
@@ -246,10 +286,13 @@ export class TunnelManager implements vscode.Disposable {
 					let out = '';
 					try {
 						const res = await execFileAsync('ssh', [
-							'-O', 'check',
-							'-o', 'BatchMode=yes',
-							'-o', `ControlPath=${controlPath}`,
-							hostname
+							'-O',
+							'check',
+							'-o',
+							'BatchMode=yes',
+							'-o',
+							`ControlPath=${controlPath}`,
+							hostname,
 						]);
 						out = res.stdout + res.stderr;
 					} catch (e: any) {
@@ -259,7 +302,9 @@ export class TunnelManager implements vscode.Disposable {
 					if (pidMatch) {
 						pid = parseInt(pidMatch[1], 10);
 					}
-				} catch { /* ignore */ }
+				} catch {
+					/* ignore */
+				}
 
 				this.tunnels.set(hostname, {
 					hostname,
@@ -341,12 +386,19 @@ export class TunnelManager implements vscode.Disposable {
 		try {
 			let out = '';
 			try {
-				const res = await execFileAsync('ssh', [
-					'-O', 'check',
-					'-o', 'BatchMode=yes',
-					'-o', `ControlPath=${controlPath}`,
-					hostname
-				], { timeout: 5000 });
+				const res = await execFileAsync(
+					'ssh',
+					[
+						'-O',
+						'check',
+						'-o',
+						'BatchMode=yes',
+						'-o',
+						`ControlPath=${controlPath}`,
+						hostname,
+					],
+					{ timeout: 5000 },
+				);
 				out = res.stdout + res.stderr;
 			} catch (e: any) {
 				out = (e.stdout || '') + (e.stderr || '');
@@ -383,39 +435,57 @@ export class TunnelManager implements vscode.Disposable {
 						}
 
 						if (autosshAlive) {
-							this.log(`TunnelManager: tunnel for ${hostname} is down, autossh (PID ${info.pid}) is reconnecting...`);
+							this.log(
+								`TunnelManager: tunnel for ${hostname} is down, autossh (PID ${info.pid}) is reconnecting...`,
+							);
 						} else {
-							this.log(`TunnelManager: autossh (PID ${info.pid}) for ${hostname} is dead — restarting`);
+							this.log(
+								`TunnelManager: autossh (PID ${info.pid}) for ${hostname} is dead — restarting`,
+							);
 							info.reconnectCount++;
-							const ok = await this.startTunnel(hostname, info.localPort, info.remotePort);
+							const ok = await this.startTunnel(
+								hostname,
+								info.localPort,
+								info.remotePort,
+							);
 							if (ok) {
-								this.log(`TunnelManager: tunnel for ${hostname} restarted (reconnect #${info.reconnectCount})`);
+								this.log(
+									`TunnelManager: tunnel for ${hostname} restarted (reconnect #${info.reconnectCount})`,
+								);
 								vscode.window.showInformationMessage(
-									`🔄 SSH tunnel to "${hostname}" was automatically reconnected.`
+									`🔄 SSH tunnel to "${hostname}" was automatically reconnected.`,
 								);
 							} else {
 								this.log(`TunnelManager: failed to restart tunnel for ${hostname}`);
 								vscode.window.showWarningMessage(
 									`⚠️ SSH tunnel to "${hostname}" is down and could not be reconnected automatically. ` +
-									`Please check your network and local proxy.`
+										`Please check your network and local proxy.`,
 								);
 							}
 						}
 					} else {
 						// Plain ssh — no auto-reconnect built in, we handle it
-						this.log(`TunnelManager: ssh tunnel for ${hostname} is down — attempting reconnect`);
+						this.log(
+							`TunnelManager: ssh tunnel for ${hostname} is down — attempting reconnect`,
+						);
 						info.reconnectCount++;
-						const ok = await this.startTunnel(hostname, info.localPort, info.remotePort);
+						const ok = await this.startTunnel(
+							hostname,
+							info.localPort,
+							info.remotePort,
+						);
 						if (ok) {
-							this.log(`TunnelManager: tunnel for ${hostname} reconnected (reconnect #${info.reconnectCount})`);
+							this.log(
+								`TunnelManager: tunnel for ${hostname} reconnected (reconnect #${info.reconnectCount})`,
+							);
 							vscode.window.showInformationMessage(
-								`🔄 SSH tunnel to "${hostname}" was automatically reconnected.`
+								`🔄 SSH tunnel to "${hostname}" was automatically reconnected.`,
 							);
 						} else {
 							this.log(`TunnelManager: failed to reconnect tunnel for ${hostname}`);
 							vscode.window.showWarningMessage(
 								`⚠️ SSH tunnel to "${hostname}" is down and could not be reconnected automatically. ` +
-								`Please check your network and local proxy.`
+									`Please check your network and local proxy.`,
 							);
 						}
 					}
@@ -459,18 +529,26 @@ export class TunnelManager implements vscode.Disposable {
 
 		try {
 			const files = await fs.readdir(socketDir);
-			const matchingFiles = files.filter(f => f.includes(hostname));
+			const matchingFiles = files.filter((f) => f.includes(hostname));
 
 			for (const socketFile of matchingFiles) {
 				const socketPath = path.join(socketDir, socketFile);
 				try {
-					await execFileAsync('ssh', ['-O', 'exit', '-o', `ControlPath=${socketPath}`, hostname]);
+					await execFileAsync('ssh', [
+						'-O',
+						'exit',
+						'-o',
+						`ControlPath=${socketPath}`,
+						hostname,
+					]);
 					this.log(`TunnelManager: closed ControlMaster socket: ${socketFile}`);
 				} catch {
 					try {
 						await fs.unlink(socketPath);
 						this.log(`TunnelManager: removed stale socket file: ${socketFile}`);
-					} catch { /* socket may already be gone */ }
+					} catch {
+						/* socket may already be gone */
+					}
 				}
 			}
 		} catch {
@@ -486,7 +564,7 @@ export class TunnelManager implements vscode.Disposable {
 	}
 
 	private sleep(ms: number): Promise<void> {
-		return new Promise(resolve => setTimeout(resolve, ms));
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
 	// ── Verification ───────────────────────────────────────────────────
@@ -495,7 +573,10 @@ export class TunnelManager implements vscode.Disposable {
 	 * Verify a tunnel is fully functional: ControlMaster running + remote port bound.
 	 * More thorough than checkHealth() — also validates RemoteForward on the remote side.
 	 */
-	async verifyTunnel(hostname: string, remotePort: number): Promise<{
+	async verifyTunnel(
+		hostname: string,
+		remotePort: number,
+	): Promise<{
 		controlMasterRunning: boolean;
 		remotePortVerified: boolean;
 	}> {
@@ -509,23 +590,28 @@ export class TunnelManager implements vscode.Disposable {
 			let out = '';
 			try {
 				const res = await execFileAsync('ssh', [
-					'-O', 'check',
-					'-o', 'BatchMode=yes',
-					'-o', `ControlPath=${controlPath}`,
-					hostname
+					'-O',
+					'check',
+					'-o',
+					'BatchMode=yes',
+					'-o',
+					`ControlPath=${controlPath}`,
+					hostname,
 				]);
 				out = res.stdout + res.stderr;
 			} catch (e: any) {
 				out = (e.stdout || '') + (e.stderr || '');
 			}
 			controlMasterRunning = out.toLowerCase().includes('running');
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 
 		if (controlMasterRunning) {
 			try {
 				const { stdout } = await execAsync(
 					`ssh -o BatchMode=yes -o ControlPath="${controlPath}" ${hostname} "ss -tln 2>/dev/null | grep -q ':${remotePort}' && echo SRG_PORT_OK || echo SRG_PORT_FAIL"`,
-					{ timeout: 8000 }
+					{ timeout: 8000 },
 				);
 				remotePortVerified = stdout.includes('SRG_PORT_OK');
 			} catch {
@@ -549,7 +635,9 @@ export class TunnelManager implements vscode.Disposable {
 				} else if (info.pid > 0) {
 					process.kill(info.pid, 'SIGTERM');
 				}
-			} catch { /* ignore */ }
+			} catch {
+				/* ignore */
+			}
 		}
 		this.tunnels.clear();
 	}

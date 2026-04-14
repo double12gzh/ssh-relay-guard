@@ -8,7 +8,10 @@ import { isPortReachable } from '../utils/portProbe';
 import { updateForHost, readStatus, readAllStatus } from './sshConfigManager';
 
 const _execAsync = promisify(exec);
-const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+const execAsync = async (
+	cmd: string,
+	options?: any,
+): Promise<{ stdout: string; stderr: string }> => {
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
 };
@@ -57,12 +60,16 @@ export class LocalModeController {
 		});
 
 		const initialStatus = await readStatus();
-		this.dashboardManager.updateSSHConfigStatus(initialStatus.enabled, initialStatus.port, initialStatus.hosts);
+		this.dashboardManager.updateSSHConfigStatus(
+			initialStatus.enabled,
+			initialStatus.port,
+			initialStatus.hosts,
+		);
 
-		if (enable && !await isPortReachable('127.0.0.1', localPort)) {
+		if (enable && !(await isPortReachable('127.0.0.1', localPort))) {
 			vscode.window.showWarningMessage(
 				`Local proxy at 127.0.0.1:${localPort} is not running. ` +
-				`Also check if port ${remotePort} is occupied on the remote server before reconnecting.`
+					`Also check if port ${remotePort} is occupied on the remote server before reconnecting.`,
 			);
 		}
 
@@ -87,7 +94,7 @@ export class LocalModeController {
 				}
 				this.dashboardManager.updateSSHConfigStatus(enabled, rp, status.hosts);
 				await this.dashboardManager.refreshStatus();
-			})
+			}),
 		);
 
 		this.registerLocalCommands();
@@ -102,7 +109,9 @@ export class LocalModeController {
 					prompt: 'Enter the SSH hostname to configure (as in ~/.ssh/config)',
 					placeHolder: 'e.g., my-server or user@192.168.1.100',
 				});
-				if (!hostname) { return; }
+				if (!hostname) {
+					return;
+				}
 
 				const lp = this.configService.localProxyPort;
 				const rp = this.configService.remoteProxyPort;
@@ -116,19 +125,21 @@ export class LocalModeController {
 				// ssh -O check does NOT establish a new connection — it only checks the socket.
 				let hasExistingSocket = false;
 				try {
-					const { stdout } = await execAsync(
-						`ssh -O check ${hostname} 2>&1 || true`
-					);
+					const { stdout } = await execAsync(`ssh -O check ${hostname} 2>&1 || true`);
 					hasExistingSocket = stdout.toLowerCase().includes('running');
-				} catch { this.log(`ControlMaster check skipped for ${hostname} (not configured or failed)`); }
+				} catch {
+					this.log(
+						`ControlMaster check skipped for ${hostname} (not configured or failed)`,
+					);
+				}
 
 				if (hasExistingSocket) {
 					const action = await vscode.window.showWarningMessage(
 						`SSH config for "${hostname}" saved (port ${rp}).\n\n` +
-						`⚠️ Detected an existing SSH connection. RemoteForward won't take effect until you reconnect.\n` +
-						`Close current connection and reconnect to activate the tunnel?`,
+							`⚠️ Detected an existing SSH connection. RemoteForward won't take effect until you reconnect.\n` +
+							`Close current connection and reconnect to activate the tunnel?`,
 						'Close & Reconnect',
-						'OK, I\'ll reconnect later'
+						"OK, I'll reconnect later",
 					);
 					if (action === 'Close & Reconnect') {
 						await this.reconnectSSHTunnel(hostname, lp, rp);
@@ -137,9 +148,9 @@ export class LocalModeController {
 					// No existing socket — try to establish one directly
 					const action = await vscode.window.showInformationMessage(
 						`SSH config for "${hostname}" saved (port ${rp}). ` +
-						`Establish SSH tunnel now?`,
+							`Establish SSH tunnel now?`,
 						'Connect Now',
-						'Later'
+						'Later',
 					);
 					if (action === 'Connect Now') {
 						await this.reconnectSSHTunnel(hostname, lp, rp);
@@ -157,38 +168,52 @@ export class LocalModeController {
 				const hostname = await vscode.window.showQuickPick(status.hosts, {
 					placeHolder: 'Select host to remove forwarding from',
 				});
-				if (!hostname) { return; }
+				if (!hostname) {
+					return;
+				}
 
 				// Warn: closing ControlMaster will terminate active remote sessions
 				const confirm = await vscode.window.showWarningMessage(
 					`This will disconnect the SSH tunnel for "${hostname}" and may terminate any active remote VS Code sessions to this host.\n\nContinue?`,
 					{ modal: true },
 					'Yes, Disconnect',
-					'Cancel'
+					'Cancel',
 				);
-				if (confirm !== 'Yes, Disconnect') { return; }
+				if (confirm !== 'Yes, Disconnect') {
+					return;
+				}
 
 				// Stop the managed tunnel (kills autossh/ssh + closes socket)
 				await this.tunnelManager.stopTunnel(hostname);
 
 				await updateForHost(hostname, 0, 0, false, (m) => this.log(m));
 				const newStatus = await readStatus();
-				this.dashboardManager.updateSSHConfigStatus(newStatus.enabled, newStatus.port, newStatus.hosts);
+				this.dashboardManager.updateSSHConfigStatus(
+					newStatus.enabled,
+					newStatus.port,
+					newStatus.hosts,
+				);
 				await this.dashboardManager.refreshStatus();
-				vscode.window.showInformationMessage(`SSH forwarding removed for host: ${hostname}`);
+				vscode.window.showInformationMessage(
+					`SSH forwarding removed for host: ${hostname}`,
+				);
 			}),
 
 			vscode.commands.registerCommand('ssh-relay-guard.tunnelStatus', async () => {
 				const status = await readStatus();
-				this.dashboardManager.updateSSHConfigStatus(status.enabled, status.port, status.hosts);
+				this.dashboardManager.updateSSHConfigStatus(
+					status.enabled,
+					status.port,
+					status.hosts,
+				);
 				if (status.hosts && status.hosts.length > 0) {
 					vscode.window.showInformationMessage(
-						`Forwarding configured for: ${status.hosts.join(', ')} (port ${status.port})`
+						`Forwarding configured for: ${status.hosts.join(', ')} (port ${status.port})`,
 					);
 				} else {
 					vscode.window.showInformationMessage('SSH port forwarding is not configured');
 				}
-			})
+			}),
 		);
 	}
 
@@ -202,7 +227,11 @@ export class LocalModeController {
 	 * @param localPort - Port where the local proxy is listening
 	 * @param remotePort - Port to bind on the remote server via RemoteForward
 	 */
-	private async reconnectSSHTunnel(hostname: string, localPort: number, remotePort: number): Promise<void> {
+	private async reconnectSSHTunnel(
+		hostname: string,
+		localPort: number,
+		remotePort: number,
+	): Promise<void> {
 		await vscode.window.withProgress(
 			{
 				location: vscode.ProgressLocation.Notification,
@@ -215,17 +244,21 @@ export class LocalModeController {
 				progress.report({
 					message: useAutossh
 						? 'Starting autossh tunnel (auto-reconnect enabled)...'
-						: 'Establishing SSH tunnel...'
+						: 'Establishing SSH tunnel...',
 				});
 
-				const connected = await this.tunnelManager.startTunnel(hostname, localPort, remotePort);
+				const connected = await this.tunnelManager.startTunnel(
+					hostname,
+					localPort,
+					remotePort,
+				);
 
 				if (!connected) {
 					const manualCmd = `ssh -fN -R ${remotePort}:127.0.0.1:${localPort} ${hostname}`;
 					const action = await vscode.window.showErrorMessage(
 						`Failed to connect to "${hostname}". ` +
-						`Ensure SSH key auth is configured (BatchMode requires key-based auth).`,
-						'Copy Command'
+							`Ensure SSH key auth is configured (BatchMode requires key-based auth).`,
+						'Copy Command',
 					);
 					if (action === 'Copy Command') {
 						await vscode.env.clipboard.writeText(manualCmd);
@@ -236,17 +269,19 @@ export class LocalModeController {
 
 				// Step 2: Verify tunnel — check ControlMaster + remote port binding
 				progress.report({ message: 'Verifying tunnel...' });
-				await new Promise(resolve => setTimeout(resolve, 1000));
+				await new Promise((resolve) => setTimeout(resolve, 1000));
 
 				const { controlMasterRunning, remotePortVerified } =
 					await this.tunnelManager.verifyTunnel(hostname, remotePort);
 
 				if (controlMasterRunning && remotePortVerified) {
-					this.log(`reconnectSSHTunnel: tunnel verified — ControlMaster running, port ${remotePort} confirmed on remote`);
+					this.log(
+						`reconnectSSHTunnel: tunnel verified — ControlMaster running, port ${remotePort} confirmed on remote`,
+					);
 					await this.dashboardManager.refreshStatus();
 					const autosshNote = useAutossh ? ' (autossh: auto-reconnect enabled)' : '';
 					vscode.window.showInformationMessage(
-						`✅ SSH tunnel to "${hostname}" established! Port ${remotePort} verified on remote.${autosshNote}`
+						`✅ SSH tunnel to "${hostname}" established! Port ${remotePort} verified on remote.${autosshNote}`,
 					);
 
 					// One-time suggestion to install autossh for auto-reconnect
@@ -254,13 +289,15 @@ export class LocalModeController {
 						await this.suggestAutosshInstall();
 					}
 				} else if (controlMasterRunning && !remotePortVerified) {
-					this.log(`reconnectSSHTunnel: ControlMaster running but port ${remotePort} NOT detected on remote`);
+					this.log(
+						`reconnectSSHTunnel: ControlMaster running but port ${remotePort} NOT detected on remote`,
+					);
 					await this.dashboardManager.refreshStatus();
 					const checkCmd = `ssh ${hostname} "ss -tlnp | grep ${remotePort}"`;
 					const warnAction = await vscode.window.showWarningMessage(
 						`SSH connected but RemoteForward port ${remotePort} not detected on remote. ` +
-						`The port may be occupied by another process.`,
-						'Copy Check Command'
+							`The port may be occupied by another process.`,
+						'Copy Check Command',
 					);
 					if (warnAction === 'Copy Check Command') {
 						await vscode.env.clipboard.writeText(checkCmd);
@@ -271,13 +308,13 @@ export class LocalModeController {
 					await this.dashboardManager.refreshStatus();
 					if (useAutossh) {
 						vscode.window.showInformationMessage(
-							`autossh started for "${hostname}" — tunnel will be established once the connection is ready.`
+							`autossh started for "${hostname}" — tunnel will be established once the connection is ready.`,
 						);
 					} else {
 						const retryCmd = `ssh -fN -R ${remotePort}:127.0.0.1:${localPort} ${hostname}`;
 						const cmAction = await vscode.window.showWarningMessage(
 							`SSH connected but ControlMaster not detected. Tunnel may not persist.`,
-							'Copy Command'
+							'Copy Command',
 						);
 						if (cmAction === 'Copy Command') {
 							await vscode.env.clipboard.writeText(retryCmd);
@@ -285,7 +322,7 @@ export class LocalModeController {
 						}
 					}
 				}
-			}
+			},
 		);
 	}
 
@@ -308,9 +345,9 @@ export class LocalModeController {
 
 		const selection = await vscode.window.showInformationMessage(
 			`💡 建议安装 autossh 以启用隧道自动重连。当 SSH 隧道断开时，autossh 可自动恢复连接。\n\n` +
-			`安装命令：${installCmd}`,
+				`安装命令：${installCmd}`,
 			'Copy Install Command',
-			"Don't show again"
+			"Don't show again",
 		);
 
 		if (selection === 'Copy Install Command') {
