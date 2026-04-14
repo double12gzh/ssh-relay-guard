@@ -13,7 +13,8 @@ export const SRG_CONFIG_FILENAME = 'config.srg';
 export const INCLUDE_LINE = `Include ${SRG_CONFIG_FILENAME}`;
 
 // Test override hook
-export const customHomedirForTesting: string | undefined = undefined;
+// eslint-disable-next-line prefer-const
+export let customHomedirForTesting: string | undefined = undefined;
 
 export function getSSHDir(): string {
 	return path.join(customHomedirForTesting ?? os.homedir(), '.ssh');

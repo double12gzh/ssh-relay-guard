@@ -117,7 +117,8 @@ export function isRunningLocally(): boolean {
  * Detects prior setup by checking for ~/bin/srg-on (deployed by setup-proxy.sh).
  * Returns true if setup was completed, false if this is a first run.
  */
-export const customHomedirForTesting: string | undefined = undefined;
+// eslint-disable-next-line prefer-const
+export let customHomedirForTesting: string | undefined = undefined;
 
 export async function isSrgSetupCompleted(): Promise<boolean> {
 	try {

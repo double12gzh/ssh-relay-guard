@@ -1,0 +1,38 @@
+name: Test / CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - beta
+      - release/*
+  pull_request:
+    branches:
+      - main
+      - master
+      - beta
+      - release/*
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Types & Lint
+        run: |
+          npm run check-types
+          npm run lint
+
+      - name: Run Unit Tests
+        run: xvfb-run -a npm run test

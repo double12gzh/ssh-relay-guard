@@ -5,17 +5,20 @@ import { exec, execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { getSSHSocketDir } from './sshConfigManager';
 
-export const customExecAsyncForTesting:
+// eslint-disable-next-line prefer-const
+export let customExecAsyncForTesting:
 	| ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>)
 	| undefined = undefined;
-export const customExecFileAsyncForTesting:
+// eslint-disable-next-line prefer-const
+export let customExecFileAsyncForTesting:
 	| ((
 			file: string,
 			args: readonly string[],
 			options?: any,
 	  ) => Promise<{ stdout: string; stderr: string }>)
 	| undefined = undefined;
-export const customSpawnForTesting: typeof spawn | undefined = undefined;
+// eslint-disable-next-line prefer-const
+export let customSpawnForTesting: typeof spawn | undefined = undefined;
 
 const _execAsync = promisify(exec);
 const execAsync = async (

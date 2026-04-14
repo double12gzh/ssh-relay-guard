@@ -1,7 +1,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-export const customReadFileForTesting: ((path: any, encoding: any) => Promise<string>) | undefined =
+// eslint-disable-next-line prefer-const
+export let customReadFileForTesting: ((path: any, encoding: any) => Promise<string>) | undefined =
 	undefined;
 
 /**

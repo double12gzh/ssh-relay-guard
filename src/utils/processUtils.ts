@@ -3,7 +3,8 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 // Test hook
-export const customExecAsyncForTesting:
+// eslint-disable-next-line prefer-const
+export let customExecAsyncForTesting:
 	| ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>)
 	| undefined = undefined;
 
