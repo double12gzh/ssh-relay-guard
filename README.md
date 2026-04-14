@@ -186,6 +186,35 @@ Remote artifacts (LS wrapper, `~/bin/srg-*` tools) are safe to leave — the LS 
 
 ---
 
+## Development
+
+Common commands for developing and packaging the extension:
+
+```bash
+# Install dependencies
+npm install
+
+# Compile the extension
+npm run compile
+
+# Watch for changes and recompile
+npm run watch
+
+# Run tests
+npm run test
+
+# Run linting
+npm run lint
+
+# Package extension into a .vsix file
+npx vsce package --no-dependencies
+
+# Publish the extension
+npx vsce publish
+```
+
+---
+
 ## License
 
 MIT © [double12gzh](https://github.com/double12gzh)

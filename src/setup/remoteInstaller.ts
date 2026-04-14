@@ -1,6 +1,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+export let customReadFileForTesting: ((path: any, encoding: any) => Promise<string>) | undefined = undefined;
+
 /**
  * Build the remote setup script by reading the template and replacing placeholders.
  * @param proxyHost - Remote proxy host. Must be a valid hostname/IP.
@@ -14,12 +16,13 @@ export async function buildInstallScript(proxyHost: string, proxyPort: number, r
     }
 
     const scriptPath = path.join(extensionPath, 'scripts', 'setup-proxy.sh');
-    let script = await fs.readFile(scriptPath, 'utf-8');
+    const read = customReadFileForTesting ?? fs.readFile;
+    let script = await read(scriptPath, 'utf-8');
 
     // Dynamically inject tools from srg-cli/remote/ to avoid code duplication
     const buildCatCmd = async (filename: string) => {
         const filePath = path.join(extensionPath, 'srg-cli', 'remote', filename);
-        let content = await fs.readFile(filePath, 'utf-8');
+        let content = await read(filePath, 'utf-8');
         // Convert srg-cli placeholders to bash sed placeholders
         content = content.replace(/__SRG_PORT__/g, '__SRG_PORT_PH__');
         content = content.replace(/__SRG_TYPE__/g, '__SRG_TYPE_PH__');
@@ -38,7 +41,7 @@ export async function buildInstallScript(proxyHost: string, proxyPort: number, r
     script = script.replace('__INJECT_SRG_SHELL__', await buildCatCmd('srg-shell'));
 
     const lsWrapperPath = path.join(extensionPath, 'srg-cli', 'remote', 'ls-wrapper.sh');
-    let lsWrapperContent = await fs.readFile(lsWrapperPath, 'utf-8');
+    let lsWrapperContent = await read(lsWrapperPath, 'utf-8');
     // Convert srg-cli placeholders to setup-proxy.sh sed placeholders for the wrapper
     lsWrapperContent = lsWrapperContent.replace(/__SRG_ADDR__/g, '__PROXY_ADDR_PLACEHOLDER__');
     lsWrapperContent = lsWrapperContent.replace(/__SRG_TYPE__/g, '__PROXY_TYPE_PLACEHOLDER__');

@@ -8,6 +8,7 @@ import {
 	readAllStatus,
 	SRG_CONFIG_FILENAME,
 	INCLUDE_LINE,
+	customHomedirForTesting
 } from '../core/sshConfigManager';
 
 /**
@@ -24,12 +25,12 @@ suite('SSH Config Manager', () => {
 	suiteSetup(async () => {
 		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'srg-test-'));
 		origHome = os.homedir();
-		// Override os.homedir() for the duration of the test
-		(os as { homedir: () => string }).homedir = () => tmpDir;
+		// Override homedir via our test hook
+		(customHomedirForTesting as any) = tmpDir;
 	});
 
 	suiteTeardown(async () => {
-		(os as { homedir: () => string }).homedir = () => origHome;
+		(customHomedirForTesting as any) = undefined;
 		await fs.rm(tmpDir, { recursive: true, force: true });
 	});
 

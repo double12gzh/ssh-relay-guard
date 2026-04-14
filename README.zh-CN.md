@@ -186,6 +186,35 @@ Host my-server
 
 ---
 
+## 开发指南
+
+日常开发与打包常用的命令如下：
+
+```bash
+# 安装依赖项
+npm install
+
+# 编译项目
+npm run compile
+
+# 监听文件变更并自动编译
+npm run watch
+
+# 运行所有单元测试
+npm run test
+
+# 代码检查 (Lint)
+npm run lint
+
+# 将插件打包为 .vsix 文件
+npx vsce package --no-dependencies
+
+# 发布插件到市场
+npx vsce publish
+```
+
+---
+
 ## 许可证
 
 MIT © [double12gzh](https://github.com/double12gzh)

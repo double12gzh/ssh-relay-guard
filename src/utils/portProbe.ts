@@ -106,9 +106,11 @@ export function isRunningLocally(): boolean {
  * Detects prior setup by checking for ~/bin/srg-on (deployed by setup-proxy.sh).
  * Returns true if setup was completed, false if this is a first run.
  */
+export let customHomedirForTesting: string | undefined = undefined;
+
 export async function isSrgSetupCompleted(): Promise<boolean> {
     try {
-        const srgOnPath = path.join(os.homedir(), 'bin', 'srg-on');
+        const srgOnPath = path.join(customHomedirForTesting ?? os.homedir(), 'bin', 'srg-on');
         await fs.access(srgOnPath);
         return true; // srg-on exists → setup completed
     } catch {

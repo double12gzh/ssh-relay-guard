@@ -12,8 +12,11 @@ import * as fs from 'fs/promises';
 export const SRG_CONFIG_FILENAME = 'config.srg';
 export const INCLUDE_LINE = `Include ${SRG_CONFIG_FILENAME}`;
 
+// Test override hook
+export let customHomedirForTesting: string | undefined = undefined;
+
 export function getSSHDir(): string {
-	return path.join(os.homedir(), '.ssh');
+	return path.join(customHomedirForTesting ?? os.homedir(), '.ssh');
 }
 
 export function getSSHConfigPath(): string {
@@ -26,6 +29,18 @@ export function getSrgConfigPath(): string {
 
 export function getSSHSocketDir(): string {
 	return path.join(getSSHDir(), 'sockets');
+}
+
+/**
+ * Build a regex to match a host marker block (start → end, including trailing newline).
+ */
+function buildHostBlockRegex(hostname: string): RegExp {
+	const hostMarker = `# --- SRG:${hostname} ---`;
+	const hostMarkerEnd = `# --- SRG:${hostname} END ---`;
+	return new RegExp(
+		`${hostMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${hostMarkerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`,
+		'g'
+	);
 }
 
 
@@ -55,14 +70,10 @@ export async function updateForHost(
 			let srgContent = '';
 			try {
 				srgContent = await fs.readFile(srgConfigPath, 'utf-8');
-			} catch { /* file doesn't exist yet */ }
+			} catch { log(`config.srg not found, will create`); }
 
 			if (srgContent.includes(hostMarker)) {
-				const regex = new RegExp(
-					`${hostMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${hostMarkerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`,
-					'g'
-				);
-				srgContent = srgContent.replace(regex, '');
+				srgContent = srgContent.replace(buildHostBlockRegex(hostname), '');
 			}
 
 			if (!srgContent.trim()) {
@@ -93,7 +104,7 @@ export async function updateForHost(
 			let mainContent = '';
 			try {
 				mainContent = await fs.readFile(mainConfigPath, 'utf-8');
-			} catch { /* doesn't exist */ }
+			} catch { log(`~/.ssh/config not found, will create`); }
 
 			// Always ensure INCLUDE_LINE is exactly at the end by removing older ones first
 			if (mainContent.includes(INCLUDE_LINE)) {
@@ -107,26 +118,22 @@ export async function updateForHost(
 			try {
 				let srgContent = await fs.readFile(srgConfigPath, 'utf-8');
 				if (srgContent.includes(hostMarker)) {
-					const regex = new RegExp(
-						`${hostMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${hostMarkerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`,
-						'g'
-					);
-					srgContent = srgContent.replace(regex, '');
+					srgContent = srgContent.replace(buildHostBlockRegex(hostname), '');
 					await fs.writeFile(srgConfigPath, srgContent, { mode: 0o600 });
 					log(`Removed host block for ${hostname}`);
 				}
 
 				if (!srgContent.includes('# --- SRG:')) {
-					try { await fs.unlink(srgConfigPath); } catch { /* ignore */ }
+					try { await fs.unlink(srgConfigPath); } catch { log(`config.srg already removed`); }
 					try {
 						let mainContent = await fs.readFile(mainConfigPath, 'utf-8');
 						mainContent = mainContent.replace(`${INCLUDE_LINE}\n`, '');
 						mainContent = mainContent.replace(INCLUDE_LINE, '');
 						await fs.writeFile(mainConfigPath, mainContent, { mode: 0o600 });
-					} catch { /* ignore */ }
+					} catch { log(`Could not update ~/.ssh/config Include line`); }
 					log('All host blocks removed, cleaned up config.srg and Include line');
 				}
-			} catch { /* ignore */ }
+			} catch (e) { log(`Host block removal skipped: ${e}`); }
 		}
 
 		log(`SSH config updated for ${hostname} (enable=${enable})`);
@@ -140,50 +147,22 @@ export async function updateForHost(
  * Get SSH config status by reading config.srg marker blocks.
  */
 export async function readStatus(hostname?: string): Promise<{ enabled: boolean; port?: number; hosts?: string[] }> {
-	try {
-		const srgConfigPath = getSrgConfigPath();
-		const content = await fs.readFile(srgConfigPath, 'utf-8');
-
-		const hostPattern = /^# --- SRG:(.*?) ---$/gm;
-		const hosts: string[] = [];
-		let match;
-		while ((match = hostPattern.exec(content)) !== null) {
-			const name = match[1];
-			if (!name.endsWith(' END')) {
-				hosts.push(name);
-			}
-		}
-
-		if (hostname) {
-			const hostMarker = `# --- SRG:${hostname} ---`;
-			const hostMarkerEnd = `# --- SRG:${hostname} END ---`;
-			const blockStart = content.indexOf(hostMarker);
-			const blockEnd = content.indexOf(hostMarkerEnd);
-
-			if (blockStart !== -1 && blockEnd !== -1) {
-				const block = content.substring(blockStart, blockEnd);
-				const portMatch = block.match(/RemoteForward\s+(\d+)/);
-				return {
-					enabled: true,
-					port: portMatch ? parseInt(portMatch[1]) : undefined,
-					hosts,
-				};
-			}
-			return { enabled: false, hosts };
-		}
-
-		if (hosts.length > 0) {
-			const portMatch = content.match(/RemoteForward\s+(\d+)/);
-			return {
-				enabled: true,
-				port: portMatch ? parseInt(portMatch[1]) : undefined,
-				hosts,
-			};
-		}
-	} catch {
-		// File doesn't exist
+	const allStatus = await readAllStatus();
+	
+	if (hostname) {
+		const hostData = allStatus.hostData.get(hostname);
+		return {
+			enabled: !!hostData,
+			port: hostData?.port,
+			hosts: allStatus.hosts,
+		};
 	}
-	return { enabled: false, hosts: [] };
+
+	return {
+		enabled: allStatus.enabled,
+		port: allStatus.port,
+		hosts: allStatus.hosts,
+	};
 }
 
 export interface HostConfigData {

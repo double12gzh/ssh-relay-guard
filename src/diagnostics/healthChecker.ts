@@ -9,7 +9,11 @@ import { getMonitoredProcess } from '../utils/processUtils';
 import { ConfigService } from '../core/configService';
 import { getSSHConfigPath } from '../core/sshConfigManager';
 
-const execAsync = promisify(exec);
+const _execAsync = promisify(exec);
+const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
+	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+};
 
 /** Known Google IP prefixes for CDN/API endpoints. */
 const GOOGLE_IP_PREFIXES = ['142.250.', '172.217.', '216.58.', '74.125.', '173.194.', '108.177.'];

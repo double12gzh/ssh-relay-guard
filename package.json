@@ -122,6 +122,12 @@
           "default": false,
           "scope": "machine-overridable",
           "description": "Rewrite daily-cloudcode-pa.googleapis.com to cloudcode-pa.googleapis.com in remote Language Server arguments to bypass DNS pollution."
+        },
+        "ssh-relay-guard.setGlobalHttpProxy": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine-overridable",
+          "description": "Configure VS Code's global http.proxy to point to the relay. If disabled, only the Language Server will be proxied via mgraftcp."
         }
       }
     }
@@ -145,6 +151,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
+    "@types/sinon": "^21.0.1",
     "@types/vscode": "^1.100.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
@@ -154,6 +161,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "npm-run-all": "^4.1.5",
+    "sinon": "^21.1.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.1"
   },

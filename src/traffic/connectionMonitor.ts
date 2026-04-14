@@ -5,7 +5,11 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { isPortReachable } from '../utils/portProbe';
 
-const execAsync = promisify(exec);
+const _execAsync = promisify(exec);
+const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
+	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+};
 
 export interface TrafficStats {
     activeConnections: number;

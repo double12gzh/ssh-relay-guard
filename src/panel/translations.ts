@@ -2,8 +2,7 @@
  * Translations for the SSH Relay Guard status panel.
  * Add new keys to BOTH 'zh' and 'en' objects to keep them in sync.
  */
-export const dict = {
-    zh: {
+const zh = {
         title: 'SSH Relay Guard (SRG)',
         local: '本地',
         remote: '远程',
@@ -94,8 +93,13 @@ export const dict = {
         remotePortTipLocal: '💡 此端口即 SSH 隧道在远端的监听端口，远端 SRG 面板将自动同步此值',
         globalForwardingTip: '💡 此开关控制所有已配置主机的转发。添加新主机请使用命令面板的「Add Host Forwarding」',
         remotePortTipRemote: '🔒 以上配置由本地端管理，如需修改请在本地 SRG 面板中调整',
-    },
-    en: {
+        tunnelDisconnected: '⚠️ SSH 隧道已断开！代理不可达，本地端 autossh 将尝试自动重连。如长时间未恢复，请检查本地网络和代理软件。',
+        autosshNotInstalled: 'autossh 未安装，隧道断开后需要手动重连。建议运行 brew install autossh (macOS) 或 apt install autossh (Linux) 安装。',
+};
+
+export type Translations = typeof zh;
+
+const en: Translations = {
         title: 'SSH Relay Guard (SRG)',
         local: 'Local',
         remote: 'Remote',
@@ -186,8 +190,13 @@ export const dict = {
         remotePortTipLocal: '💡 SSH tunnel port on the remote side. The Remote SRG panel will auto-sync this value',
         globalForwardingTip: '💡 Controls forwarding for all configured hosts. To add a new host, use "Add Host Forwarding" from the Command Palette',
         remotePortTipRemote: '🔒 These settings are managed by the local side. To change, adjust in the Local SRG panel',
-    }
+        tunnelDisconnected: '⚠️ SSH tunnel disconnected! Proxy unreachable. autossh on your local machine will attempt to reconnect. If the issue persists, check your local network and proxy software.',
+        autosshNotInstalled: 'autossh is not installed. When the tunnel disconnects, manual reconnection will be needed. Install it with: brew install autossh (macOS) or apt install autossh (Linux).',
+};
+
+export const dict = {
+    zh,
+    en
 };
 
 export type Lang = 'zh' | 'en';
-export type Translations = typeof dict.zh;

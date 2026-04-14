@@ -2,7 +2,15 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+// Test hook
+export let customExecAsyncForTesting: ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>) | undefined = undefined;
+
+const _execAsync = promisify(exec);
+const execAsync = async (cmd: string, options?: any): Promise<{ stdout: string; stderr: string }> => {
+	if (customExecAsyncForTesting) return customExecAsyncForTesting(cmd, options);
+	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
+	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+};
 
 /**
  * Check if mgraftcp is currently running (i.e., Language Server is using proxy)
@@ -21,7 +29,7 @@ let processCache: { data: { pid: number; isPersistent: boolean; isUsingProxy: bo
 const PROCESS_CACHE_TTL_MS = 5000;
 
 /** Invalidate the process cache (called after kill operations) */
-function invalidateProcessCache(): void {
+export function invalidateProcessCache(): void {
 	processCache = null;
 }
 

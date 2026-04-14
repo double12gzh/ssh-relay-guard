@@ -48,6 +48,8 @@ export class DashboardManager {
     private isRunningDiagnostics: boolean = false;
     private isVerifying: boolean = false;
     private currentLang: Lang = 'zh';
+    /** Track previous proxy reachability to detect disconnection transitions. */
+    private previousProxyReachable: boolean | null = null;
 
     constructor(private isLocal: boolean, private context: vscode.ExtensionContext, private configService: ConfigService) {
         this.statusBarItem = vscode.window.createStatusBarItem(
@@ -144,27 +146,39 @@ export class DashboardManager {
                 this.currentStatus.localProxyPort
             );
         } else {
-            const [reachable, setupDone] = await Promise.all([
-                isPortReachable(
+            const proxyType = this.configService.proxyType as 'http' | 'socks5';
+            const [functional, setupDone] = await Promise.all([
+                isProxyFunctional(
                     this.currentStatus.remoteProxyHost,
-                    this.currentStatus.remoteProxyPort
+                    this.currentStatus.remoteProxyPort,
+                    proxyType
                 ),
                 isSrgSetupCompleted(),
             ]);
+            
+            // If proxy is functional at protocol level, it guarantees port reachability
+            const reachable = functional;
+            
             this.currentStatus.remoteProxyReachable = reachable;
+            this.currentStatus.remoteProxyFunctional = functional;
             this.currentStatus.remoteSetupCompleted = setupDone;
 
-            // If port is reachable, verify it's actually a proxy (not just any service)
-            if (reachable) {
-                const proxyType = this.configService.proxyType as 'http' | 'socks5';
-                this.currentStatus.remoteProxyFunctional = await isProxyFunctional(
-                    this.currentStatus.remoteProxyHost,
-                    this.currentStatus.remoteProxyPort,
-                    proxyType,
-                );
-            } else {
-                this.currentStatus.remoteProxyFunctional = false;
+            // Detect proxy disconnect transition: was reachable → now unreachable
+            if (this.previousProxyReachable === true && !reachable && setupDone) {
+                const t = dict[this.currentLang];
+                vscode.window.showWarningMessage(
+                    t.tunnelDisconnected,
+                    t.runDiag,
+                    t.closeRemote
+                ).then(selection => {
+                    if (selection === t.runDiag) {
+                        vscode.commands.executeCommand('ssh-relay-guard.diagnose');
+                    } else if (selection === t.closeRemote) {
+                        vscode.commands.executeCommand('workbench.action.remote.close');
+                    }
+                });
             }
+            this.previousProxyReachable = reachable;
         }
 
         this.currentStatus.lastUpdated = new Date();
@@ -226,122 +240,116 @@ export class DashboardManager {
 
         this.statusPanel.webview.html = this.getPanelHtml();
 
+        const messageHandlers: Record<string, (message: any) => Promise<void> | void> = {
+            refresh: async () => {
+                await this.refreshStatus();
+                if (!this.isLocal) {
+                    await this.connectionMonitor.refresh();
+                }
+            },
+            saveConfig: async (msg) => {
+                await this.saveConfig(msg.config);
+            },
+            runDiagnostics: async () => {
+                await this.runInlineDiagnostics();
+            },
+            copyReport: async () => {
+                await this.copyDiagnosticReport();
+            },
+            setLanguage: async (msg) => {
+                this.currentLang = msg.lang as Lang;
+                await this.context.globalState.update('uiLanguage', this.currentLang);
+                this.forceRenderPanel();
+            },
+            closeRemote: async () => {
+                let hostname = 'your-host';
+                const remoteName = vscode.env.remoteName;
+                if (remoteName && remoteName !== 'ssh-remote') {
+                    hostname = remoteName;
+                } else {
+                    const sshConn = process.env['SSH_CONNECTION'];
+                    if (sshConn) {
+                        try {
+                            const { execSync } = require('child_process');
+                            hostname = String(execSync('hostname -s 2>/dev/null || hostname', { timeout: 2000 })).trim();
+                        } catch { /* keep default */ }
+                    }
+                }
+                const cleanupCmd = `ssh -O exit ${hostname}`;
+                const port = this.configService.remoteProxyPort;
+                const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} ${hostname}`;
+
+                const action = await vscode.window.showWarningMessage(
+                    `This will close the remote VS Code window.\n\n` +
+                    `⚠️ The SSH tunnel (ControlMaster) may persist on the local machine.\n` +
+                    `To fully close the tunnel, run on LOCAL terminal:\n` +
+                    `  ${cleanupCmd}\n\n` +
+                    `To manually establish the tunnel later:\n` +
+                    `  ${tunnelCmd}`,
+                    { modal: true },
+                    'Close & Copy Commands',
+                    'Just Close',
+                    'Cancel'
+                );
+
+                if (action === 'Cancel' || !action) { return; }
+
+                if (action === 'Close & Copy Commands') {
+                    const clipboardText = `# 1. Close existing tunnel\n${cleanupCmd}\n\n# 2. Establish new background static tunnel\n${tunnelCmd}`;
+                    await vscode.env.clipboard.writeText(clipboardText);
+                    vscode.window.showInformationMessage(
+                        `Copied manual commands to clipboard. Paste in local terminal to manage the tunnel manually.`
+                    );
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+
+                vscode.commands.executeCommand('workbench.action.remote.close');
+            },
+            rollback: () => {
+                vscode.commands.executeCommand('ssh-relay-guard.rollback');
+            },
+            fixDiag: async (msg) => {
+                const action = msg.action as string;
+                if (action === 'setup') {
+                    vscode.commands.executeCommand('ssh-relay-guard.setup');
+                } else if (action === 'enableForwarding') {
+                    vscode.commands.executeCommand('ssh-relay-guard.enableForwarding');
+                } else if (action === 'killReload') {
+                    await killTargetProcess((m) => console.log('[DashboardManager] ' + m));
+                    setTimeout(() => {
+                        vscode.commands.executeCommand('workbench.action.reloadWindow');
+                    }, 1000);
+                } else if (action === 'reloadWindow') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                } else if (action.startsWith('switchProtocol:')) {
+                    const newType = action.split(':')[1];
+                    const config = vscode.workspace.getConfiguration('ssh-relay-guard');
+                    await config.update('proxyType', newType, vscode.ConfigurationTarget.Global);
+                    this.configService.reload();
+                    const t = dict[this.currentLang];
+                    vscode.window.showInformationMessage(t.configSaved);
+                    await this.refreshStatus();
+                    this.forceRenderPanel();
+                } else if (action.startsWith('copyCommand:')) {
+                    const cmd = action.substring('copyCommand:'.length);
+                    await vscode.env.clipboard.writeText(cmd);
+                    const t = dict[this.currentLang];
+                    vscode.window.showInformationMessage(t.copiedToClipboard);
+                }
+            },
+            copyCommand: async (msg) => {
+                const text = msg.text as string;
+                await vscode.env.clipboard.writeText(text);
+                const t = dict[this.currentLang];
+                vscode.window.showInformationMessage(t.copiedToClipboard);
+            }
+        };
+
         this.statusPanel.webview.onDidReceiveMessage(
             async (message) => {
-                switch (message.command) {
-                    case 'refresh':
-                        await this.refreshStatus();
-                        if (!this.isLocal) {
-                            await this.connectionMonitor.refresh();
-                        }
-                        // refreshStatus already calls updatePanelIfOpen — no full rebuild needed
-                        break;
-                    case 'saveConfig':
-                        await this.saveConfig(message.config);
-                        // saveConfig calls refreshStatus → updatePanelIfOpen — no full rebuild needed
-                        break;
-                    case 'runDiagnostics':
-                        await this.runInlineDiagnostics();
-                        break;
-                    case 'copyReport':
-                        await this.copyDiagnosticReport();
-                        break;
-                    case 'setLanguage':
-                        this.currentLang = message.lang as Lang;
-                        await this.context.globalState.update('uiLanguage', this.currentLang);
-                        // Language change requires full rerender for all translated strings
-                        this.forceRenderPanel();
-                        break;
-                    case 'closeRemote': {
-                        // Detect hostname: try env.remoteName, fall back to extension host env
-                        let hostname = 'your-host';
-                        const remoteName = vscode.env.remoteName;
-                        if (remoteName && remoteName !== 'ssh-remote') {
-                            hostname = remoteName;
-                        } else {
-                            // Try parsing from environment
-                            const sshConn = process.env['SSH_CONNECTION'];
-                            if (sshConn) {
-                                // SSH_CONNECTION format: "client_ip client_port server_ip server_port"
-                                // We need the hostname from config, not IP. Try hostname command.
-                                try {
-                                    const { execSync } = require('child_process');
-                                    hostname = String(execSync('hostname -s 2>/dev/null || hostname', { timeout: 2000 })).trim();
-                                } catch { /* keep default */ }
-                            }
-                        }
-                        const cleanupCmd = `ssh -O exit ${hostname}`;
-                        const port = this.configService.remoteProxyPort;
-                        const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} ${hostname}`;
-
-                        const action = await vscode.window.showWarningMessage(
-                            `This will close the remote VS Code window.\n\n` +
-                            `⚠️ The SSH tunnel (ControlMaster) may persist on the local machine.\n` +
-                            `To fully close the tunnel, run on LOCAL terminal:\n` +
-                            `  ${cleanupCmd}\n\n` +
-                            `To manually establish the tunnel later:\n` +
-                            `  ${tunnelCmd}`,
-                            { modal: true },
-                            'Close & Copy Commands',
-                            'Just Close',
-                            'Cancel'
-                        );
-
-                        if (action === 'Cancel' || !action) { break; }
-
-                        if (action === 'Close & Copy Commands') {
-                            const clipboardText = `# 1. Close existing tunnel\n${cleanupCmd}\n\n# 2. Establish new background static tunnel\n${tunnelCmd}`;
-                            await vscode.env.clipboard.writeText(clipboardText);
-                            vscode.window.showInformationMessage(
-                                `Copied manual commands to clipboard. Paste in local terminal to manage the tunnel manually.`
-                            );
-                            // Brief delay so user can see the message
-                            await new Promise(r => setTimeout(r, 1500));
-                        }
-
-                        vscode.commands.executeCommand('workbench.action.remote.close');
-                        break;
-                    }
-                    case 'rollback':
-                        vscode.commands.executeCommand('ssh-relay-guard.rollback');
-                        break;
-                    case 'fixDiag': {
-                        const action = message.action as string;
-                        if (action === 'setup') {
-                            vscode.commands.executeCommand('ssh-relay-guard.setup');
-                        } else if (action === 'enableForwarding') {
-                            vscode.commands.executeCommand('ssh-relay-guard.enableForwarding');
-                        } else if (action === 'killReload') {
-                            await killTargetProcess((m) => console.log('[DashboardManager] ' + m));
-                            setTimeout(() => {
-                                vscode.commands.executeCommand('workbench.action.reloadWindow');
-                            }, 1000);
-                        } else if (action === 'reloadWindow') {
-                            vscode.commands.executeCommand('workbench.action.reloadWindow');
-                        } else if (action.startsWith('switchProtocol:')) {
-                            const newType = action.split(':')[1];
-                            const config = vscode.workspace.getConfiguration('ssh-relay-guard');
-                            await config.update('proxyType', newType, vscode.ConfigurationTarget.Global);
-                            this.configService.reload();
-                            const t = dict[this.currentLang];
-                            vscode.window.showInformationMessage(t.configSaved);
-                            await this.refreshStatus();
-                            this.forceRenderPanel();
-                        } else if (action.startsWith('copyCommand:')) {
-                            const cmd = action.substring('copyCommand:'.length);
-                            await vscode.env.clipboard.writeText(cmd);
-                            const t = dict[this.currentLang];
-                            vscode.window.showInformationMessage(t.copiedToClipboard);
-                        }
-                        break;
-                    }
-                    case 'copyCommand': {
-                        const text = message.text as string;
-                        await vscode.env.clipboard.writeText(text);
-                        const t = dict[this.currentLang];
-                        vscode.window.showInformationMessage(t.copiedToClipboard);
-                        break;
-                    }
+                const handler = messageHandlers[message.command];
+                if (handler) {
+                    await handler(message);
                 }
             },
             undefined,
