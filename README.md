@@ -221,10 +221,26 @@ npm run test
 npm run watch
 
 # Package the extension into a .vsix file (for manual installation)
-npx vsce package --no-dependencies
+npx -y @vscode/vsce package --no-dependencies
+```
 
-# Publish (Normally handled by GitHub Actions automatically on new v* tags)
-npx vsce publish
+#### Automated Publishing (Recommended)
+Push a version tag to trigger CI/CD, which automatically publishes to both marketplaces:
+```bash
+git tag v0.1.0
+git push origin --tags
+```
+
+#### Manual Publishing
+```bash
+# Publish to VS Code Marketplace
+# Requires a Personal Access Token from https://dev.azure.com → User Settings → Personal access tokens
+# Scopes: Marketplace → Manage
+npx -y @vscode/vsce publish -p <YOUR_VSCE_PAT>
+
+# Publish to Open VSX Registry
+# Requires an Access Token from https://open-vsx.org → User Settings → Access Tokens
+npx -y ovsx publish -p <YOUR_OVSX_PAT>
 ```
 
 ---

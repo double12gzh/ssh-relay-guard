@@ -221,10 +221,26 @@ npm run test
 npm run watch
 
 # 手动将插件打包为独立安装包 (.vsix 文件)
-npx vsce package --no-dependencies
+npx -y @vscode/vsce package --no-dependencies
+```
 
-# 把新版本发布到扩展市场（建议直接通过打标推送 v* Tag，交由 Github Action CI/CD 全自动完成发布）
-npx vsce publish
+#### 自动发布（推荐）
+推送版本标签即可触发 CI/CD，自动发布到两个插件市场：
+```bash
+git tag v0.1.0
+git push origin --tags
+```
+
+#### 手动发布
+```bash
+# 发布到 VS Code Marketplace
+# 需要 Personal Access Token，获取地址：https://dev.azure.com → 用户设置 → Personal access tokens
+# 权限范围：Marketplace → Manage
+npx -y @vscode/vsce publish -p <YOUR_VSCE_PAT>
+
+# 发布到 Open VSX Registry
+# 需要 Access Token，获取地址：https://open-vsx.org → 用户设置 → Access Tokens
+npx -y ovsx publish -p <YOUR_OVSX_PAT>
 ```
 
 ---
