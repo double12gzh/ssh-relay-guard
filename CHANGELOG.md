@@ -2,7 +2,11 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
-## 【0.0.2】 - 2026-04-16
+## [0.0.3] - 2026-04-16
+
+- First release to OVSX
+
+## [0.0.2] - 2026-04-16
 
 - Add publish command
 
