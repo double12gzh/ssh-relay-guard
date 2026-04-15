@@ -2,6 +2,10 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## 【0.0.2】 - 2026-04-16
+
+- Add publish command
+
 ## [0.0.1] - 2026-04-11
 
 ### Added
