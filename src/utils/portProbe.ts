@@ -17,14 +17,23 @@ import * as vscode from 'vscode';
  *       Use the name `isPortReachable` at call sites to make intent clear.
  */
 export function isPortReachable(host: string, port: number, timeoutMs = 2000): Promise<boolean> {
-    return new Promise((resolve) => {
-        const socket = new net.Socket();
-        socket.setTimeout(timeoutMs);
-        socket.on('connect', () => { socket.destroy(); resolve(true); });
-        socket.on('timeout', () => { socket.destroy(); resolve(false); });
-        socket.on('error',   () => { socket.destroy(); resolve(false); });
-        socket.connect(port, host);
-    });
+	return new Promise((resolve) => {
+		const socket = new net.Socket();
+		socket.setTimeout(timeoutMs);
+		socket.on('connect', () => {
+			socket.destroy();
+			resolve(true);
+		});
+		socket.on('timeout', () => {
+			socket.destroy();
+			resolve(false);
+		});
+		socket.on('error', () => {
+			socket.destroy();
+			resolve(false);
+		});
+		socket.connect(port, host);
+	});
 }
 
 /**
@@ -43,54 +52,56 @@ export function isPortReachable(host: string, port: number, timeoutMs = 2000): P
  * @returns true if the endpoint responds like a real proxy.
  */
 export function isProxyFunctional(
-    host: string,
-    port: number,
-    proxyType: 'http' | 'socks5' | 'any' = 'any',
-    timeoutMs = 3000,
+	host: string,
+	port: number,
+	proxyType: 'http' | 'socks5' | 'any' = 'any',
+	timeoutMs = 3000,
 ): Promise<boolean> {
-    if (proxyType === 'any') {
-        // Try SOCKS5 first (faster binary handshake), then HTTP
-        return isProxyFunctional(host, port, 'socks5', timeoutMs).then(ok =>
-            ok ? true : isProxyFunctional(host, port, 'http', timeoutMs)
-        );
-    }
+	if (proxyType === 'any') {
+		// Try SOCKS5 first (faster binary handshake), then HTTP
+		return isProxyFunctional(host, port, 'socks5', timeoutMs).then((ok) =>
+			ok ? true : isProxyFunctional(host, port, 'http', timeoutMs),
+		);
+	}
 
-    return new Promise((resolve) => {
-        const socket = new net.Socket();
-        let settled = false;
-        const done = (result: boolean) => {
-            if (settled) { return; }
-            settled = true;
-            socket.destroy();
-            resolve(result);
-        };
+	return new Promise((resolve) => {
+		const socket = new net.Socket();
+		let settled = false;
+		const done = (result: boolean) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			socket.destroy();
+			resolve(result);
+		};
 
-        socket.setTimeout(timeoutMs);
-        socket.on('timeout', () => done(false));
-        socket.on('error', () => done(false));
-        socket.on('close', () => done(false));
+		socket.setTimeout(timeoutMs);
+		socket.on('timeout', () => done(false));
+		socket.on('error', () => done(false));
+		socket.on('close', () => done(false));
 
-        socket.connect(port, host, () => {
-            if (proxyType === 'socks5') {
-                // SOCKS5 greeting: VER=0x05, NMETHODS=1, METHOD=0x00 (no auth)
-                socket.write(Buffer.from([0x05, 0x01, 0x00]));
-            } else {
-                // HTTP CONNECT to a dummy target — any HTTP response means proxy
-                socket.write('CONNECT 0.0.0.0:0 HTTP/1.1\r\nHost: 0.0.0.0:0\r\n\r\n');
-            }
-        });
+		socket.connect(port, host, () => {
+			if (proxyType === 'socks5') {
+				// SOCKS5 greeting: VER=0x05, NMETHODS=1, METHOD=0x00 (no auth)
+				socket.write(Buffer.from([0x05, 0x01, 0x00]));
+			} else {
+				// HTTP CONNECT to a dummy target — any HTTP response means proxy
+				socket.write('CONNECT 0.0.0.0:0 HTTP/1.1\r\nHost: 0.0.0.0:0\r\n\r\n');
+			}
+		});
 
-        socket.on('data', (data: Buffer) => {
-            if (proxyType === 'socks5') {
-                // Valid SOCKS5 response: 2 bytes, first byte is 0x05
-                done(data.length >= 2 && data[0] === 0x05);
-            } else {
-                // Any HTTP-ish response means the proxy is alive
-                const head = data.toString('utf-8', 0, Math.min(data.length, 32));
-                done(head.startsWith('HTTP/'));
-            }
-        });
-    });
+		socket.on('data', (data: Buffer) => {
+			if (proxyType === 'socks5') {
+				// Valid SOCKS5 response: 2 bytes, first byte is 0x05
+				done(data.length >= 2 && data[0] === 0x05);
+			} else {
+				// Any HTTP-ish response means the proxy is alive
+				const head = data.toString('utf-8', 0, Math.min(data.length, 32));
+				done(head.startsWith('HTTP/'));
+			}
+		});
+	});
 }
 
 /**
@@ -98,7 +109,7 @@ export function isProxyFunctional(
  * (not inside a Remote-SSH / SSH extension host).
  */
 export function isRunningLocally(): boolean {
-    return !vscode.env.remoteName;
+	return !vscode.env.remoteName;
 }
 
 /**
@@ -106,12 +117,15 @@ export function isRunningLocally(): boolean {
  * Detects prior setup by checking for ~/bin/srg-on (deployed by setup-proxy.sh).
  * Returns true if setup was completed, false if this is a first run.
  */
+// eslint-disable-next-line prefer-const
+export let customHomedirForTesting: string | undefined = undefined;
+
 export async function isSrgSetupCompleted(): Promise<boolean> {
-    try {
-        const srgOnPath = path.join(os.homedir(), 'bin', 'srg-on');
-        await fs.access(srgOnPath);
-        return true; // srg-on exists → setup completed
-    } catch {
-        return false; // srg-on missing → not set up
-    }
+	try {
+		const srgOnPath = path.join(customHomedirForTesting ?? os.homedir(), 'bin', 'srg-on');
+		await fs.access(srgOnPath);
+		return true; // srg-on exists → setup completed
+	} catch {
+		return false; // srg-on missing → not set up
+	}
 }

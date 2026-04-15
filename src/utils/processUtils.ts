@@ -1,8 +1,22 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+// Test hook
+// eslint-disable-next-line prefer-const
+export let customExecAsyncForTesting:
+	| ((cmd: string, options?: ExecOptions) => Promise<{ stdout: string; stderr: string }>)
+	| undefined = undefined;
+
+const _execAsync = promisify(exec);
+const execAsync = async (
+	cmd: string,
+	options?: ExecOptions,
+): Promise<{ stdout: string; stderr: string }> => {
+	if (customExecAsyncForTesting) return customExecAsyncForTesting(cmd, options);
+	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
+	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+};
 
 /**
  * Check if mgraftcp is currently running (i.e., Language Server is using proxy)
@@ -17,11 +31,14 @@ export async function isMgraftcpRunning(): Promise<boolean> {
 }
 
 // Cache for getMonitoredProcess to avoid redundant `ps aux` calls within a short window
-let processCache: { data: { pid: number; isPersistent: boolean; isUsingProxy: boolean } | null; timestamp: number } | null = null;
+let processCache: {
+	data: { pid: number; isPersistent: boolean; isUsingProxy: boolean } | null;
+	timestamp: number;
+} | null = null;
 const PROCESS_CACHE_TTL_MS = 5000;
 
 /** Invalidate the process cache (called after kill operations) */
-function invalidateProcessCache(): void {
+export function invalidateProcessCache(): void {
 	processCache = null;
 }
 
@@ -30,7 +47,11 @@ function invalidateProcessCache(): void {
  * Returns PID and whether it's running in persistent mode.
  * Results are cached for 5 seconds to avoid redundant exec calls.
  */
-export async function getMonitoredProcess(): Promise<{ pid: number; isPersistent: boolean; isUsingProxy: boolean } | null> {
+export async function getMonitoredProcess(): Promise<{
+	pid: number;
+	isPersistent: boolean;
+	isUsingProxy: boolean;
+} | null> {
 	if (processCache && Date.now() - processCache.timestamp < PROCESS_CACHE_TTL_MS) {
 		return processCache.data;
 	}
@@ -40,12 +61,19 @@ export async function getMonitoredProcess(): Promise<{ pid: number; isPersistent
 	return result;
 }
 
-async function getMonitoredProcessUncached(): Promise<{ pid: number; isPersistent: boolean; isUsingProxy: boolean } | null> {
+async function getMonitoredProcessUncached(): Promise<{
+	pid: number;
+	isPersistent: boolean;
+	isUsingProxy: boolean;
+} | null> {
 	try {
 		const { stdout } = await execAsync('ps aux | grep language_server_linux | grep -v grep');
-		const lines = stdout.trim().split('\n').filter(l => l.length > 0);
+		const lines = stdout
+			.trim()
+			.split('\n')
+			.filter((l) => l.length > 0);
 
-		const hasMgraftcpWrapper = lines.some(line => line.includes('mgraftcp'));
+		const hasMgraftcpWrapper = lines.some((line) => line.includes('mgraftcp'));
 
 		for (const line of lines) {
 			if (line.includes('mgraftcp-fakedns')) {
@@ -55,7 +83,8 @@ async function getMonitoredProcessUncached(): Promise<{ pid: number; isPersisten
 				const parts = line.split(/\s+/);
 				if (parts.length >= 2) {
 					const pid = parseInt(parts[1]);
-					const isPersistent = line.includes('--persistent_mode') || line.includes('persistent_mode');
+					const isPersistent =
+						line.includes('--persistent_mode') || line.includes('persistent_mode');
 					if (!isNaN(pid)) {
 						return { pid, isPersistent, isUsingProxy: hasMgraftcpWrapper };
 					}
@@ -83,7 +112,7 @@ export async function killTargetProcess(log: (msg: string) => void): Promise<boo
 		await execAsync(`kill ${proc.pid}`);
 		invalidateProcessCache();
 
-		await new Promise(resolve => setTimeout(resolve, 1000));
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 
 		const stillRunning = await getMonitoredProcess();
 		if (stillRunning && stillRunning.pid === proc.pid) {
@@ -105,11 +134,7 @@ export async function killTargetProcess(log: (msg: string) => void): Promise<boo
  * Show reload window prompt.
  */
 export function promptReloadWindow(message: string): void {
-	vscode.window.showInformationMessage(
-		message,
-		'Reload Now',
-		'Later'
-	).then(selection => {
+	vscode.window.showInformationMessage(message, 'Reload Now', 'Later').then((selection) => {
 		if (selection === 'Reload Now') {
 			vscode.commands.executeCommand('workbench.action.reloadWindow');
 		}

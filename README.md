@@ -186,6 +186,49 @@ Remote artifacts (LS wrapper, `~/bin/srg-*` tools) are safe to leave — the LS 
 
 ---
 
+## Development
+
+### 1. Setup Environment
+```bash
+git clone https://github.com/double12gzh/ssh-relay-guard.git
+cd ssh-relay-guard
+npm install
+```
+
+### 2. Local Debugging
+To test and debug the extension locally:
+1. Open this project in VS Code / Antigravity.
+2. Press `F5` to launch a new "Extension Development Host" window.
+3. Make changes to the source code.
+4. Run `Developer: Reload Window` (`Cmd+R` or `Ctrl+R`) in the debug host to immediately apply changes.
+
+### 3. Code Quality & Testing
+This project integrates ESLint (with strict TypeScript rules) and Prettier for formatting. A `husky` pre-commit hook ensures code quality before every commit.
+```bash
+# Format codebase (Prettier)
+npm run format
+
+# Run linting and autofix (ESLint)
+npm run lint -- --fix
+
+# Run all unit tests (100% coverage)
+npm run test
+```
+
+### 4. Build & Publish
+```bash
+# Compile and actively watch for changes
+npm run watch
+
+# Package the extension into a .vsix file (for manual installation)
+npx vsce package --no-dependencies
+
+# Publish (Normally handled by GitHub Actions automatically on new v* tags)
+npx vsce publish
+```
+
+---
+
 ## License
 
 MIT © [double12gzh](https://github.com/double12gzh)

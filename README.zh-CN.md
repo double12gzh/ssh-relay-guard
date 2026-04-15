@@ -186,6 +186,49 @@ Host my-server
 
 ---
 
+## 开发指南
+
+### 1. 环境准备
+```bash
+git clone https://github.com/double12gzh/ssh-relay-guard.git
+cd ssh-relay-guard
+npm install
+```
+
+### 2. 本地调试
+如果要进行二次开发并在本地测试修改：
+1. 在 VS Code 或 Antigravity 中打开本项目。
+2. 按下 `F5`，编辑器会自动弹出一个新的「扩展开发宿主 (Extension Development Host)」窗口。
+3. 对代码进行任何修改并保存。
+4. 在开发宿主窗口中按键盘 `Cmd+R` (或 `Ctrl+R`) 执行重载，即可立即在沙盒中体验您的修改。
+
+### 3. 测试与代码规范
+项目集成了带有严格 TypeScript 规则的 ESLint 以及 Prettier。通过 Husky 拦截，任何不合规的代码都会在 `git commit` 时被拒绝提交。
+```bash
+# 自动格式化项目代码 (Prettier)
+npm run format
+
+# 运行代码规范检查与自动修复 (ESLint)
+npm run lint -- --fix
+
+# 运行全套单元测试 (当前通过率 100%)
+npm run test
+```
+
+### 4. 编译与发版打包
+```bash
+# 在开发阶段，可随时开启后台监听热编译
+npm run watch
+
+# 手动将插件打包为独立安装包 (.vsix 文件)
+npx vsce package --no-dependencies
+
+# 把新版本发布到扩展市场（建议直接通过打标推送 v* Tag，交由 Github Action CI/CD 全自动完成发布）
+npx vsce publish
+```
+
+---
+
 ## 许可证
 
 MIT © [double12gzh](https://github.com/double12gzh)
