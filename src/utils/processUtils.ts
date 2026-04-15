@@ -1,17 +1,17 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
 
 // Test hook
 // eslint-disable-next-line prefer-const
 export let customExecAsyncForTesting:
-	| ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>)
+	| ((cmd: string, options?: ExecOptions) => Promise<{ stdout: string; stderr: string }>)
 	| undefined = undefined;
 
 const _execAsync = promisify(exec);
 const execAsync = async (
 	cmd: string,
-	options?: any,
+	options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string }> => {
 	if (customExecAsyncForTesting) return customExecAsyncForTesting(cmd, options);
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });

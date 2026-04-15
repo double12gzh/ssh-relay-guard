@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import { ConfigService } from '../core/configService';
 import * as fs from 'fs/promises';
-import { exec } from 'child_process';
+import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
 import { isPortReachable } from '../utils/portProbe';
 
 const _execAsync = promisify(exec);
 const execAsync = async (
 	cmd: string,
-	options?: any,
+	options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string }> => {
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };

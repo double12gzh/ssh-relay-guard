@@ -246,7 +246,10 @@ export class DashboardManager {
 
 		this.statusPanel.webview.html = this.getPanelHtml();
 
-		const messageHandlers: Record<string, (message: any) => Promise<void> | void> = {
+		const messageHandlers: Record<
+			string,
+			(message: Record<string, unknown>) => Promise<void> | void
+		> = {
 			refresh: async () => {
 				await this.refreshStatus();
 				if (!this.isLocal) {
@@ -254,7 +257,7 @@ export class DashboardManager {
 				}
 			},
 			saveConfig: async (msg) => {
-				await this.saveConfig(msg.config);
+				await this.saveConfig(msg.config as Parameters<DashboardManager['saveConfig']>[0]);
 			},
 			runDiagnostics: async () => {
 				await this.runInlineDiagnostics();
@@ -444,8 +447,6 @@ export class DashboardManager {
 		proxyType?: string;
 		rewriteCloudCodeEndpoint?: boolean;
 	}): Promise<void> {
-		const oldProxyType = this.configService.proxyType;
-		const oldRewrite = this.configService.rewriteCloudCodeEndpoint;
 		const t = dict[this.currentLang];
 		// ConfigService is the read cache; writes go through VS Code API
 		const config = vscode.workspace.getConfiguration('ssh-relay-guard');

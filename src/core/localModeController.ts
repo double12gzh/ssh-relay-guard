@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
@@ -10,7 +10,7 @@ import { updateForHost, readStatus, readAllStatus } from './sshConfigManager';
 const _execAsync = promisify(exec);
 const execAsync = async (
 	cmd: string,
-	options?: any,
+	options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string }> => {
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };

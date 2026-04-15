@@ -1,20 +1,20 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { exec, execFile, spawn, ChildProcess } from 'child_process';
+import { exec, execFile, spawn, ChildProcess, ExecOptions, ExecFileOptions } from 'child_process';
 import { promisify } from 'util';
 import { getSSHSocketDir } from './sshConfigManager';
 
 // eslint-disable-next-line prefer-const
 export let customExecAsyncForTesting:
-	| ((cmd: string, options?: any) => Promise<{ stdout: string; stderr: string }>)
+	| ((cmd: string, options?: ExecOptions) => Promise<{ stdout: string; stderr: string }>)
 	| undefined = undefined;
 // eslint-disable-next-line prefer-const
 export let customExecFileAsyncForTesting:
 	| ((
 			file: string,
 			args: readonly string[],
-			options?: any,
+			options?: ExecFileOptions,
 	  ) => Promise<{ stdout: string; stderr: string }>)
 	| undefined = undefined;
 // eslint-disable-next-line prefer-const
@@ -23,7 +23,7 @@ export let customSpawnForTesting: typeof spawn | undefined = undefined;
 const _execAsync = promisify(exec);
 const execAsync = async (
 	cmd: string,
-	options?: any,
+	options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string }> => {
 	if (customExecAsyncForTesting) return customExecAsyncForTesting(cmd, options);
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
@@ -33,7 +33,7 @@ const _execFileAsync = promisify(execFile);
 const execFileAsync = async (
 	file: string,
 	args: readonly string[],
-	options?: any,
+	options?: ExecFileOptions,
 ): Promise<{ stdout: string; stderr: string }> => {
 	if (customExecFileAsyncForTesting) return customExecFileAsyncForTesting(file, args, options);
 	const res = await _execFileAsync(file, args, options);
@@ -298,8 +298,9 @@ export class TunnelManager implements vscode.Disposable {
 							hostname,
 						]);
 						out = res.stdout + res.stderr;
-					} catch (e: any) {
-						out = (e.stdout || '') + (e.stderr || '');
+					} catch (e: unknown) {
+						const err = e as { stdout?: string; stderr?: string };
+						out = (err.stdout || '') + (err.stderr || '');
 					}
 					const pidMatch = out.match(/pid=(\d+)/);
 					if (pidMatch) {
@@ -403,8 +404,9 @@ export class TunnelManager implements vscode.Disposable {
 					{ timeout: 5000 },
 				);
 				out = res.stdout + res.stderr;
-			} catch (e: any) {
-				out = (e.stdout || '') + (e.stderr || '');
+			} catch (e: unknown) {
+				const err = e as { stdout?: string; stderr?: string };
+				out = (err.stdout || '') + (err.stderr || '');
 			}
 			return out.toLowerCase().includes('running');
 		} catch {
@@ -602,8 +604,9 @@ export class TunnelManager implements vscode.Disposable {
 					hostname,
 				]);
 				out = res.stdout + res.stderr;
-			} catch (e: any) {
-				out = (e.stdout || '') + (e.stderr || '');
+			} catch (e: unknown) {
+				const err = e as { stdout?: string; stderr?: string };
+				out = (err.stdout || '') + (err.stderr || '');
 			}
 			controlMasterRunning = out.toLowerCase().includes('running');
 		} catch {

@@ -1,8 +1,7 @@
-import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { exec } from 'child_process';
+import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
 import { isPortReachable, isRunningLocally } from '../utils/portProbe';
 import { getMonitoredProcess } from '../utils/processUtils';
@@ -12,7 +11,7 @@ import { getSSHConfigPath } from '../core/sshConfigManager';
 const _execAsync = promisify(exec);
 const execAsync = async (
 	cmd: string,
-	options?: any,
+	options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string }> => {
 	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
 	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
@@ -525,7 +524,7 @@ async function checkExternalConnectivity(
 			} else {
 				result.error = `HTTP ${httpCode}`;
 			}
-		} catch (error) {
+		} catch {
 			result.error = 'Connection failed';
 		}
 

@@ -2,8 +2,9 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 // eslint-disable-next-line prefer-const
-export let customReadFileForTesting: ((path: any, encoding: any) => Promise<string>) | undefined =
-	undefined;
+export let customReadFileForTesting:
+	| ((path: string, encoding: string) => Promise<string>)
+	| undefined = undefined;
 
 /**
  * Build the remote setup script by reading the template and replacing placeholders.
