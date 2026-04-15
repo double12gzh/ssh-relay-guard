@@ -4,6 +4,23 @@ export function buildClientScript(isLocal: boolean): string {
         const isLocal = ${isLocal};
 
         function refresh()  { vscode.postMessage({ command: 'refresh' }); }
+
+        function retryCheck() {
+            const btn = document.getElementById('retry-btn');
+            if (btn) {
+                const original = btn.textContent;
+                btn.textContent = '⏳ ...';
+                btn.disabled = true;
+                vscode.postMessage({ command: 'refresh' });
+                setTimeout(() => {
+                    btn.textContent = '✓ ' + original;
+                    btn.disabled = false;
+                    setTimeout(() => { btn.textContent = original; }, 1500);
+                }, 2000);
+            } else {
+                vscode.postMessage({ command: 'refresh' });
+            }
+        }
         function rollback() { vscode.postMessage({ command: 'rollback' }); }
 
         function saveConfig() {

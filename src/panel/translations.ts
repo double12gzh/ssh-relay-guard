@@ -57,6 +57,7 @@ const zh = {
 	updated: '已更新',
 	tunnelWarningTitle: 'SSH 隧道未建立',
 	tunnelWarningMsg: '代理不可达。仅重启 IDE 无法解决此问题，需先在本地电脑修复隧道。',
+	tunnelStep0: '在本地 SRG 面板运行「Add Host Forwarding」配置 SSH 隧道',
 	tunnelStep1: '确认本地代理软件（Clash / V2Ray 等）已启动',
 	tunnelStep2: '在本地终端运行 SSH 隧道命令（见下方诊断）',
 	tunnelStep3: '点击下方「重试检测」确认隧道已通',
@@ -159,6 +160,7 @@ const en: Translations = {
 	tunnelWarningTitle: 'SSH Tunnel Not Established',
 	tunnelWarningMsg:
 		"Proxy is unreachable. Simply restarting the IDE won't fix this — the tunnel must be fixed from your local machine.",
+	tunnelStep0: 'Run "Add Host Forwarding" in the local SRG panel to configure SSH tunnel',
 	tunnelStep1: 'Ensure your local proxy (Clash / V2Ray) is running',
 	tunnelStep2: 'Run the SSH tunnel command in your local terminal (see diagnostics below)',
 	tunnelStep3: 'Click "Retry" below to verify the tunnel is working',

@@ -66,6 +66,21 @@ export class LocalModeController {
 			initialStatus.hosts,
 		);
 
+		// First-run prompt: guide user to configure their first remote host
+		if (!initialStatus.hosts || initialStatus.hosts.length === 0) {
+			this.log('No hosts configured — showing first-run prompt');
+			vscode.window
+				.showInformationMessage(
+					'👋 SSH Relay Guard installed! Configure your first remote host to enable proxy forwarding.',
+					'Add Host Now',
+				)
+				.then((action) => {
+					if (action === 'Add Host Now') {
+						vscode.commands.executeCommand('ssh-relay-guard.enableForwarding');
+					}
+				});
+		}
+
 		if (enable && !(await isPortReachable('127.0.0.1', localPort))) {
 			vscode.window.showWarningMessage(
 				`Local proxy at 127.0.0.1:${localPort} is not running. ` +

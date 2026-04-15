@@ -472,10 +472,11 @@ function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
                 <h4>${t.tunnelWarningTitle}</h4>
                 <p>${t.tunnelWarningMsg}</p>
                 <div class="alert-steps">
-                    <div class="step-item"><span class="step-n step-n-warn">1</span>${t.tunnelStep1}</div>
-                    <div class="step-item"><span class="step-n step-n-warn">2</span>${t.tunnelStep2}</div>
-                    <div class="step-item"><span class="step-n step-n-warn">3</span>${t.tunnelStep3}</div>
-                    <div class="step-item"><span class="step-n step-n-warn">4</span>${t.tunnelStep4}</div>
+                    <div class="step-item"><span class="step-n step-n-warn">1</span>${t.tunnelStep0}</div>
+                    <div class="step-item"><span class="step-n step-n-warn">2</span>${t.tunnelStep1}</div>
+                    <div class="step-item"><span class="step-n step-n-warn">3</span>${t.tunnelStep2}</div>
+                    <div class="step-item"><span class="step-n step-n-warn">4</span>${t.tunnelStep3}</div>
+                    <div class="step-item"><span class="step-n step-n-warn">5</span>${t.tunnelStep4}</div>
                 </div>
                 <div class="tunnel-cmd-wrap">
                     <div class="tunnel-cmd-label">${t.tunnelCmdLabel}</div>
@@ -485,9 +486,9 @@ function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
                     </div>
                 </div>
                 <div class="alert-actions">
-                    <button class="ab ab-warn" onclick="refresh()">${t.retryCheck}</button>
-                    <button class="ab ab-warn" onclick="runDiagnostics()">${t.runDiag}</button>
-                    <button class="ab ab-ghost ab-sm" onclick="closeRemote()" style="margin-left:auto;">${t.closeRemote}</button>
+                    <button class="ab ab-alert-btn" id="retry-btn" onclick="retryCheck()">${t.retryCheck}</button>
+                    <button class="ab ab-alert-btn" onclick="runDiagnostics()">${t.runDiag}</button>
+                    <button class="ab ab-alert-btn ab-alert-ghost" onclick="closeRemote()">${t.closeRemote}</button>
                 </div>
             </div>
         </div>`;

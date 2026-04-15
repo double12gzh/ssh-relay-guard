@@ -340,6 +340,23 @@ export const STATIC_CSS = `
         .ab-sm { flex: none; padding: 5px 10px; font-size: 9px; border-radius: 4px; }
         .ab:disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
         .ab-warn { background: var(--amber); color: var(--bg); border: none; font-weight: 700; }
+        .ab-alert-btn {
+            padding: 7px 16px !important; font-size: 11px !important;
+            border-radius: var(--radius-sm) !important;
+            background: var(--amber); color: var(--bg); border: none;
+            font-weight: 700; flex: none;
+        }
+        .ab-alert-btn:hover { opacity: 0.85; }
+        .ab-alert-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .ab-alert-ghost {
+            background: transparent !important; color: var(--text-dim) !important;
+            border: 1px solid var(--border) !important;
+        }
+        .ab-alert-ghost:hover {
+            border-color: rgba(255,255,255,0.12) !important;
+            color: var(--text) !important;
+            background: rgba(255,255,255,0.03) !important;
+        }
 
         /* Footer */
         .foot {

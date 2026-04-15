@@ -2,6 +2,7 @@ import typescriptEslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
 
 export default [
+    { ignores: ["**/lifecycle/uninstall.js"] },
     ...typescriptEslint.configs.recommended,
     {
         files: ["**/*.ts"],

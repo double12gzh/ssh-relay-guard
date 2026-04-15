@@ -141,7 +141,6 @@ export class RemoteModeController {
 	): void {
 		this.context.subscriptions.push(
 			vscode.commands.registerCommand('ssh-relay-guard.setup', async () => {
-				const type = this.configService.proxyType;
 				const host = this.configService.remoteProxyHost;
 				const port = this.configService.remoteProxyPort;
 				const rewrite = this.configService.rewriteCloudCodeEndpoint;
@@ -421,11 +420,12 @@ export class RemoteModeController {
 		const message =
 			'👋 Welcome to SSH Relay Guard!\n\n' +
 			'The proxy tunnel is not yet established. ' +
-			'To complete the setup, please follow these steps:\n\n' +
+			'SSH tunnels can only be created when the SSH connection starts, ' +
+			'so you need to configure the LOCAL side first, then reconnect.\n\n' +
 			'Step 1: Install SRG extension on your LOCAL machine\n' +
 			'Step 2: In the local SRG panel, run "Add Host Forwarding" for this host\n' +
-			'Step 3: Reconnect to this remote server — the tunnel will be established automatically\n\n' +
-			'After reconnecting, SRG will auto-configure the proxy for you.';
+			'Step 3: Disconnect and reconnect to this remote server\n\n' +
+			'⚠️ Important: You MUST reconnect SSH (not just reload window) for the tunnel to work.';
 
 		const selection = await vscode.window.showInformationMessage(
 			message,
@@ -450,18 +450,22 @@ export class RemoteModeController {
 	): Promise<void> {
 		const lp = this.configService.localProxyPort;
 		const tunnelCmd = `ssh -fN -R ${proxyPort}:127.0.0.1:${lp} <hostname>`;
+		const autosshCmd = `autossh -M 0 -fN -R ${proxyPort}:127.0.0.1:${lp} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <hostname>`;
 
 		const detailMessage =
 			`Proxy not reachable at ${proxyHost}:${proxyPort}\n\n` +
 			`Fix steps (try in order):\n\n` +
 			`1. Start local proxy\n` +
 			`   Ensure Clash / V2Ray is running and listening on port ${lp}\n\n` +
-			`2. Establish SSH tunnel (run on LOCAL terminal)\n` +
-			`   ${tunnelCmd}\n` +
-			`   (Replace <hostname> with your SSH host)\n\n` +
-			`3. Check if port is occupied (run on REMOTE terminal)\n` +
+			`2. Run "Add Host Forwarding" on LOCAL SRG panel\n` +
+			`   This writes RemoteForward to SSH config and establishes the tunnel\n` +
+			`   Manual fallback (auto-reconnect): ${autosshCmd}\n` +
+			`   Manual fallback (basic): ${tunnelCmd}\n\n` +
+			`3. Disconnect and reconnect this remote window\n` +
+			`   SSH tunnel only takes effect on new connections\n\n` +
+			`4. Check if port is occupied (run on REMOTE terminal)\n` +
 			`   ss -tlnp | grep ${proxyPort}\n\n` +
-			`4. Verify port settings match\n` +
+			`5. Verify port settings match\n` +
 			`   Local panel "Remote Port" must equal remote panel "Proxy Port"`;
 
 		this.log('Showing proxy not reachable warning dialog');
