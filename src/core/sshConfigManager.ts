@@ -87,15 +87,15 @@ export async function updateForHost(
 
 			const hostBlock = [
 				hostMarker,
+				`# SRG_REMOTE_PORT=${remotePort}`,
+				`# SRG_LOCAL_PORT=${localPort}`,
 				`Host ${hostname}`,
-				`    # Reverse tunnel: remote ${remotePort} → local ${localPort}`,
-				`    RemoteForward ${remotePort} 127.0.0.1:${localPort}`,
-				'    # Keep "no": VS Code Remote uses this config; explicit tunnel commands use ExitOnForwardFailure=yes',
-				'    ExitOnForwardFailure no',
 				'    # Connection multiplexing: tunnel persists after window close',
 				'    ControlMaster auto',
 				`    ControlPath ${socketDir}/%r@%h-%p`,
 				'    ControlPersist 4h',
+				'    # RemoteForward is NOT set here — TunnelManager handles it',
+				'    # exclusively with ExitOnForwardFailure=yes for proper error reporting',
 				hostMarkerEnd,
 				'',
 			].join('\n');
@@ -111,7 +111,9 @@ export async function updateForHost(
 				log(`~/.ssh/config not found, will create`);
 			}
 
-			// Always ensure INCLUDE_LINE is exactly at the end by removing older ones first
+			// Always ensure INCLUDE_LINE is exactly at the FIRST line.
+			// SSH uses first-match-wins: SRG's ControlMaster/ControlPath must
+			// take precedence over any user-defined Host * or Host <name> blocks.
 			if (mainContent.includes(INCLUDE_LINE)) {
 				mainContent = mainContent
 					.split('\n')
@@ -119,9 +121,9 @@ export async function updateForHost(
 					.join('\n');
 			}
 
-			mainContent = mainContent.trimEnd() + `\n\n${INCLUDE_LINE}\n`;
-			await fs.writeFile(mainConfigPath, mainContent.trimStart(), { mode: 0o600 });
-			log(`Added/Moved Include line to the end of ${mainConfigPath}`);
+			mainContent = `${INCLUDE_LINE}\n${mainContent.trimStart()}`;
+			await fs.writeFile(mainConfigPath, mainContent, { mode: 0o600 });
+			log(`Added/Moved Include line to the first line of ${mainConfigPath}`);
 		} else {
 			try {
 				let srgContent = await fs.readFile(srgConfigPath, 'utf-8');
@@ -185,6 +187,7 @@ export async function readStatus(
 
 export interface HostConfigData {
 	port?: number;
+	localPort?: number;
 }
 
 /**
@@ -222,15 +225,20 @@ export async function readAllStatus(): Promise<{
 
 			if (blockStart !== -1 && blockEnd !== -1) {
 				const block = content.substring(blockStart, blockEnd);
-				const portMatch = block.match(/RemoteForward\s+(\d+)/);
+				// Parse port from SRG metadata comment (new format) or RemoteForward (legacy)
+				const remotePortMatch =
+					block.match(/# SRG_REMOTE_PORT=(\d+)/) || block.match(/RemoteForward\s+(\d+)/);
+				const localPortMatch = block.match(/# SRG_LOCAL_PORT=(\d+)/);
 				hostData.set(host, {
-					port: portMatch ? parseInt(portMatch[1]) : undefined,
+					port: remotePortMatch ? parseInt(remotePortMatch[1]) : undefined,
+					localPort: localPortMatch ? parseInt(localPortMatch[1]) : undefined,
 				});
 			}
 		}
 
 		if (hosts.length > 0) {
-			const portMatch = content.match(/RemoteForward\s+(\d+)/);
+			const portMatch =
+				content.match(/# SRG_REMOTE_PORT=(\d+)/) || content.match(/RemoteForward\s+(\d+)/);
 			return {
 				enabled: true,
 				port: portMatch ? parseInt(portMatch[1]) : undefined,

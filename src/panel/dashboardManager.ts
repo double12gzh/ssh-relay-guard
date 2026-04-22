@@ -519,7 +519,12 @@ export class DashboardManager {
 		const isLocal = status.runningLocation === 'local';
 		const t = dict[this.currentLang];
 		const trafficStats = this.connectionMonitor.getStats();
-		const { color: statusColor, text: statusText } = resolveStatusAppearance(status, t);
+		let { color: statusColor, text: statusText } = resolveStatusAppearance(status, t);
+
+		if (!isLocal && trafficStats.localReconnecting) {
+			statusColor = '#fbbf24'; // Yellow
+			statusText = this.currentLang === 'zh' ? '正在重连' : 'Reconnecting';
+		}
 
 		this.statusPanel.webview.postMessage({
 			command: 'updateStatus',
@@ -593,6 +598,7 @@ export class DashboardManager {
 				tooltip = 'SSH Relay Guard (SRG)\n❌ Disconnected';
 			}
 		} else {
+			const trafficStats = this.connectionMonitor.getStats();
 			if (status.remoteSetupCompleted === false) {
 				tooltip =
 					this.currentLang === 'zh'
@@ -600,6 +606,11 @@ export class DashboardManager {
 						: 'SSH Relay Guard (SRG)\n⚠️ Tunnel not established\n\n① Install SRG on your LOCAL machine\n② Run \"Add Host Forwarding\" locally\n③ Reconnect to this server';
 			} else if (status.remoteProxyFunctional) {
 				tooltip = 'SSH Relay Guard (SRG)\n✅ Proxy OK';
+			} else if (trafficStats.localReconnecting) {
+				tooltip =
+					this.currentLang === 'zh'
+						? 'SSH Relay Guard (SRG)\n🔄 隧道断开，本地正在尝试重连...'
+						: 'SSH Relay Guard (SRG)\n🔄 Tunnel disconnected, local side reconnecting...';
 			} else if (status.remoteProxyReachable) {
 				tooltip =
 					this.currentLang === 'zh'
@@ -610,7 +621,12 @@ export class DashboardManager {
 			}
 		}
 
-		this.statusBarItem.text = '$(shield) SRG';
+		if (!this.isLocal && this.connectionMonitor.getStats().localReconnecting) {
+			this.statusBarItem.text = '$(sync~spin) SRG';
+			this.statusBarItem.color = '#fbbf24';
+		} else {
+			this.statusBarItem.text = '$(shield) SRG';
+		}
 		this.statusBarItem.tooltip = tooltip;
 		this.statusBarItem.backgroundColor = undefined;
 	}
@@ -641,6 +657,10 @@ export class DashboardManager {
 
 	private getPanelHtml(): string {
 		return buildPanelHtml(this.buildPanelContext());
+	}
+
+	setLocalReconnectionState(reconnecting: boolean): void {
+		this.connectionMonitor.setLocalReconnectionState(reconnecting);
 	}
 
 	private generateTrafficHtml(t: typeof dict.zh, stats: TrafficStats, isLocal: boolean): string {

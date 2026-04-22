@@ -1,21 +1,11 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { exec, ExecOptions } from 'child_process';
-import { promisify } from 'util';
+
 import { isPortReachable, isRunningLocally } from '../utils/portProbe';
-import { getMonitoredProcess } from '../utils/processUtils';
+import { getMonitoredProcess, execAsync } from '../utils/processUtils';
 import { ConfigService } from '../core/configService';
 import { getSSHConfigPath } from '../core/sshConfigManager';
-
-const _execAsync = promisify(exec);
-const execAsync = async (
-	cmd: string,
-	options?: ExecOptions,
-): Promise<{ stdout: string; stderr: string }> => {
-	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
-	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
-};
 
 /** Known Google IP prefixes for CDN/API endpoints. */
 const GOOGLE_IP_PREFIXES = ['142.250.', '172.217.', '216.58.', '74.125.', '173.194.', '108.177.'];
@@ -157,21 +147,24 @@ async function checkSSHConfig(remoteProxyPort: number): Promise<DiagnosticCheck>
 					check.fixAction = 'enableForwarding';
 				} else {
 					// Check if any host has the expected remotePort
-					const portMatches = [...srgContent.matchAll(/RemoteForward\s+(\d+)/g)];
+					const portMatches = [
+						...srgContent.matchAll(/# SRG_REMOTE_PORT=(\d+)/g),
+						...srgContent.matchAll(/RemoteForward\s+(\d+)/g),
+					];
 					const configuredPorts = portMatches.map((pm) => parseInt(pm[1]));
 					const hasExpectedPort = configuredPorts.includes(remoteProxyPort);
 
 					if (hasExpectedPort) {
 						check.status = 'success';
-						check.message = `SSH RemoteForward configured for port ${remoteProxyPort} (${hosts.length} host(s): ${hosts.join(', ')})`;
+						check.message = `SSH Proxy Port configured as ${remoteProxyPort} (${hosts.length} host(s): ${hosts.join(', ')})`;
 					} else if (configuredPorts.length > 0) {
 						check.status = 'warning';
-						check.message = `RemoteForward port mismatch: configured [${configuredPorts.join(', ')}], expected ${remoteProxyPort}`;
+						check.message = `Proxy Port mismatch: configured [${configuredPorts.join(', ')}], expected ${remoteProxyPort}`;
 						check.suggestion =
 							'Update port in SRG panel or run "Add Host Forwarding" command.';
 					} else {
 						check.status = 'error';
-						check.message = 'RemoteForward directive not found in config.srg';
+						check.message = 'Proxy Port configuration not found in config.srg';
 						check.suggestion =
 							'Click 🔧 to open "Add Host Forwarding" and configure SSH.';
 						check.fixAction = 'enableForwarding';

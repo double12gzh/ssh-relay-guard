@@ -1,18 +1,8 @@
 import * as vscode from 'vscode';
 import { ConfigService } from '../core/configService';
 import * as fs from 'fs/promises';
-import { exec, ExecOptions } from 'child_process';
-import { promisify } from 'util';
-import { isPortReachable } from '../utils/portProbe';
-
-const _execAsync = promisify(exec);
-const execAsync = async (
-	cmd: string,
-	options?: ExecOptions,
-): Promise<{ stdout: string; stderr: string }> => {
-	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
-	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
-};
+import { execAsync } from '../utils/processUtils';
+import { isPortReachable, isProxyFunctional } from '../utils/portProbe';
 
 export interface TrafficStats {
 	activeConnections: number;
@@ -20,6 +10,7 @@ export interface TrafficStats {
 	sessionStartTime: Date;
 	lastUpdated: Date;
 	proxyReachable: boolean;
+	localReconnecting?: boolean;
 }
 
 type StatsUpdateCallback = (stats: TrafficStats) => void;
@@ -30,6 +21,8 @@ export class ConnectionMonitor {
 	private updateCallbacks: StatsUpdateCallback[] = [];
 	private peakConnections: number = 0;
 	private readonly refreshIntervalMs: number = 2000;
+	private wasReachable: boolean | null = null;
+	private collectCycle = 0;
 
 	constructor(private configService: ConfigService) {
 		this.stats = {
@@ -38,6 +31,7 @@ export class ConnectionMonitor {
 			sessionStartTime: new Date(),
 			lastUpdated: new Date(),
 			proxyReachable: false,
+			localReconnecting: false,
 		};
 	}
 
@@ -128,14 +122,60 @@ export class ConnectionMonitor {
 	}
 
 	/**
+	 * Allows the local extension to notify the remote side that it is actively trying to reconnect the tunnel.
+	 */
+	setLocalReconnectionState(reconnecting: boolean): void {
+		if (this.stats.localReconnecting !== reconnecting) {
+			this.stats.localReconnecting = reconnecting;
+			// Notify listeners immediately
+			for (const callback of this.updateCallbacks) {
+				callback(this.getStats());
+			}
+		}
+	}
+
+	/**
 	 * Collect traffic statistics
 	 */
 	private async collect(): Promise<void> {
 		const remoteProxyHost = this.configService.remoteProxyHost;
 		const remoteProxyPort = this.configService.remoteProxyPort;
 
-		// Check proxy reachability
-		this.stats.proxyReachable = await isPortReachable(remoteProxyHost, remoteProxyPort);
+		this.collectCycle++;
+
+		// Deep protocol check every 5th cycle (10 seconds), otherwise just fast port reachability
+		let isReachable = false;
+		if (this.collectCycle % 5 === 0) {
+			const proxyType = this.configService.proxyType as 'http' | 'socks5' | 'any';
+			isReachable = await isProxyFunctional(
+				remoteProxyHost,
+				remoteProxyPort,
+				proxyType,
+				1500,
+			);
+		} else {
+			isReachable = await isPortReachable(remoteProxyHost, remoteProxyPort, 1500);
+		}
+
+		this.stats.proxyReachable = isReachable;
+
+		// Notify user if tunnel transitions from working to disconnected
+		if (this.wasReachable === true && !isReachable) {
+			vscode.window
+				.showWarningMessage(
+					`⚠️ 代理隧道断开！无法连接到 ${remoteProxyHost}:${remoteProxyPort}`,
+					'打开控制面板',
+					'运行健康检查',
+				)
+				.then((action) => {
+					if (action === '打开控制面板') {
+						vscode.commands.executeCommand('ssh-relay-guard.showStatusPanel');
+					} else if (action === '运行健康检查') {
+						vscode.commands.executeCommand('ssh-relay-guard.diagnose');
+					}
+				});
+		}
+		this.wasReachable = isReachable;
 
 		// Get active connections using ss command
 		const activeConnections = await this.getActiveConnections(remoteProxyPort);
