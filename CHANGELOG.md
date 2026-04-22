@@ -1,6 +1,9 @@
 # Change Log
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
+## [0.0.4] -2026-04-22
+
+- Enhance ssh tunnel manager
 
 ## [0.0.3] - 2026-04-16
 
