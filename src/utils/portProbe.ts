@@ -93,8 +93,8 @@ export function isProxyFunctional(
 
 		socket.on('data', (data: Buffer) => {
 			if (proxyType === 'socks5') {
-				// Valid SOCKS5 response: 2 bytes, first byte is 0x05
-				done(data.length >= 2 && data[0] === 0x05);
+				// Valid SOCKS5 response: 2 bytes, first byte is 0x05, second is not 0xFF
+				done(data.length >= 2 && data[0] === 0x05 && data[1] !== 0xff);
 			} else {
 				// Any HTTP-ish response means the proxy is alive
 				const head = data.toString('utf-8', 0, Math.min(data.length, 32));

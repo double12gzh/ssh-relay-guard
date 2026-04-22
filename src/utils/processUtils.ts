@@ -9,7 +9,7 @@ export let customExecAsyncForTesting:
 	| undefined = undefined;
 
 const _execAsync = promisify(exec);
-const execAsync = async (
+export const execAsync = async (
 	cmd: string,
 	options?: ExecOptions,
 ): Promise<{ stdout: string; stderr: string }> => {

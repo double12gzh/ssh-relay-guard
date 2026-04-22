@@ -55,15 +55,15 @@ suite('SSH Config Manager', () => {
 		assert.ok(srgConfig.includes('# --- SRG:test-server ---'), 'Should have start marker');
 		assert.ok(srgConfig.includes('# --- SRG:test-server END ---'), 'Should have end marker');
 		assert.ok(srgConfig.includes('Host test-server'), 'Should have Host directive');
-		assert.ok(
-			srgConfig.includes('RemoteForward 7890 127.0.0.1:7890'),
-			'Should have RemoteForward',
-		);
+		assert.ok(srgConfig.includes('# SRG_REMOTE_PORT=7890'), 'Should have SRG_REMOTE_PORT');
 		assert.ok(srgConfig.includes('ControlMaster auto'), 'Should have ControlMaster');
 		assert.ok(srgConfig.includes('ControlPersist 4h'), 'Should have ControlPersist');
 
-		// main config should include config.srg
-		assert.ok(mainConfig.includes(INCLUDE_LINE), 'Main config should Include config.srg');
+		// main config should include config.srg at the first line
+		assert.ok(
+			mainConfig.startsWith(INCLUDE_LINE),
+			'Main config should start with Include config.srg',
+		);
 	});
 
 	test('should support multiple hosts', async () => {
@@ -75,8 +75,8 @@ suite('SSH Config Manager', () => {
 
 		assert.ok(srgConfig.includes('# --- SRG:server-a ---'), 'Should have server-a');
 		assert.ok(srgConfig.includes('# --- SRG:server-b ---'), 'Should have server-b');
-		assert.ok(srgConfig.includes('RemoteForward 7890'), 'Should have port 7890');
-		assert.ok(srgConfig.includes('RemoteForward 8080'), 'Should have port 8080');
+		assert.ok(srgConfig.includes('# SRG_REMOTE_PORT=7890'), 'Should have port 7890');
+		assert.ok(srgConfig.includes('# SRG_REMOTE_PORT=8080'), 'Should have port 8080');
 	});
 
 	test('should update existing host block (idempotent)', async () => {
@@ -91,8 +91,8 @@ suite('SSH Config Manager', () => {
 		assert.strictEqual(markerCount, 1, 'Should have exactly one start marker');
 
 		// Should use the updated port
-		assert.ok(srgConfig.includes('RemoteForward 8080'), 'Should have updated port');
-		assert.ok(!srgConfig.includes('RemoteForward 7890'), 'Should not have old port');
+		assert.ok(srgConfig.includes('# SRG_REMOTE_PORT=8080'), 'Should have updated port');
+		assert.ok(!srgConfig.includes('# SRG_REMOTE_PORT=7890'), 'Should not have old port');
 	});
 
 	test('should remove host block when disabled', async () => {

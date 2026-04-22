@@ -1,20 +1,10 @@
 import * as vscode from 'vscode';
-import { exec, ExecOptions } from 'child_process';
-import { promisify } from 'util';
+import { execAsync } from '../utils/processUtils';
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
 import { TunnelManager } from './tunnelManager';
 import { isPortReachable } from '../utils/portProbe';
 import { updateForHost, readStatus, readAllStatus } from './sshConfigManager';
-
-const _execAsync = promisify(exec);
-const execAsync = async (
-	cmd: string,
-	options?: ExecOptions,
-): Promise<{ stdout: string; stderr: string }> => {
-	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
-	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
-};
 
 /**
  * LocalModeController — Handles all local-side SRG functionality.
@@ -149,28 +139,24 @@ export class LocalModeController {
 				}
 
 				if (hasExistingSocket) {
-					const action = await vscode.window.showWarningMessage(
-						`SSH config for "${hostname}" saved (port ${rp}).\n\n` +
-							`⚠️ Detected an existing SSH connection. RemoteForward won't take effect until you reconnect.\n` +
-							`Close current connection and reconnect to activate the tunnel?`,
-						'Close & Reconnect',
-						"OK, I'll reconnect later",
+					this.log(
+						`Detected existing SSH connection for ${hostname}. Closing to apply RemoteForward.`,
 					);
-					if (action === 'Close & Reconnect') {
-						await this.reconnectSSHTunnel(hostname, lp, rp);
+					try {
+						await execAsync(`ssh -O exit ${hostname}`);
+					} catch (e) {
+						this.log(`Failed to exit existing SSH connection: ${e}`);
 					}
+					vscode.window.showInformationMessage(
+						`SSH config for "${hostname}" saved. Restarting existing SSH connection to apply proxy configuration...`,
+					);
 				} else {
-					// No existing socket — try to establish one directly
-					const action = await vscode.window.showInformationMessage(
-						`SSH config for "${hostname}" saved (port ${rp}). ` +
-							`Establish SSH tunnel now?`,
-						'Connect Now',
-						'Later',
+					vscode.window.showInformationMessage(
+						`SSH config for "${hostname}" saved. Establishing SSH tunnel...`,
 					);
-					if (action === 'Connect Now') {
-						await this.reconnectSSHTunnel(hostname, lp, rp);
-					}
 				}
+
+				await this.reconnectSSHTunnel(hostname, lp, rp);
 			}),
 
 			vscode.commands.registerCommand('ssh-relay-guard.disableForwarding', async () => {

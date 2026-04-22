@@ -2,8 +2,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { exec, ExecOptions } from 'child_process';
-import { promisify } from 'util';
+
 import { buildInstallScript, buildRestoreScript } from '../setup/remoteInstaller';
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
@@ -13,16 +12,8 @@ import {
 	getMonitoredProcess,
 	killTargetProcess,
 	promptReloadWindow,
+	execAsync,
 } from '../utils/processUtils';
-
-const _execAsync = promisify(exec);
-const execAsync = async (
-	cmd: string,
-	options?: ExecOptions,
-): Promise<{ stdout: string; stderr: string }> => {
-	const res = await _execAsync(cmd, { maxBuffer: 1024 * 1024 * 10, ...options });
-	return { stdout: res.stdout.toString(), stderr: res.stderr.toString() };
-};
 
 /**
  * RemoteModeController — Handles all remote-side SRG functionality.
@@ -163,6 +154,12 @@ export class RemoteModeController {
 				await this.dashboardManager.refreshStatus();
 				vscode.window.showInformationMessage(ok ? `Proxy OK` : `Proxy NOT reachable`);
 			}),
+			vscode.commands.registerCommand(
+				'ssh-relay-guard.remote.setReconnectingState',
+				(state: boolean) => {
+					this.dashboardManager.setLocalReconnectionState(state);
+				},
+			),
 		);
 	}
 
