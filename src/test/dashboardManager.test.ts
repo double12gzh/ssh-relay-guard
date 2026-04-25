@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { DashboardManager } from '../panel/dashboardManager';
+import { StateManager } from '../core/stateManager';
 
 /**
  * Mock ConfigService
@@ -48,9 +49,11 @@ const mockContext = {
 
 suite('DashboardManager', () => {
 	let dashboard: DashboardManager;
+	let stateManager: StateManager;
 
 	setup(() => {
-		dashboard = new DashboardManager(true, mockContext, mockConfigService);
+		stateManager = new StateManager();
+		dashboard = new DashboardManager(true, mockContext, mockConfigService, stateManager);
 		// Note: The previous test mock passed connection monitor, but it's instantiated inside DashboardManager now.
 	});
 
@@ -70,5 +73,32 @@ suite('DashboardManager', () => {
 		const html = dashboard['getPanelHtml']();
 		assert.ok(html.includes('class="root"'));
 		assert.ok(html.includes('var(--bg)')); // checking css
+	});
+
+	suite('Status Bar Logic (Local Mode)', () => {
+		test('should show disconnected when SSH configured but active tunnels count is 0', () => {
+			stateManager.updateState({
+				sshConfigEnabled: true,
+				activeTunnelsCount: 0,
+				localProxyReachable: true,
+			});
+			dashboard['updateStatusBar']();
+			const tooltip = dashboard['statusBarItem'].tooltip;
+			assert.strictEqual(
+				tooltip,
+				'SSH Relay Guard (SRG)\n⚠️ SSH configured, but tunnel is not running',
+			);
+		});
+
+		test('should show connected when SSH configured, tunnels count > 0, and proxy reachable', () => {
+			stateManager.updateState({
+				sshConfigEnabled: true,
+				activeTunnelsCount: 1,
+				localProxyReachable: true,
+			});
+			dashboard['updateStatusBar']();
+			const tooltip = dashboard['statusBarItem'].tooltip;
+			assert.strictEqual(tooltip, 'SSH Relay Guard (SRG)\n✅ Connected');
+		});
 	});
 });

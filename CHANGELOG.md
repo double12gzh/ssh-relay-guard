@@ -2,6 +2,17 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [Nightly] - Unreleased
+
+### Added
+- **Standalone Tunnel Daemon (Go)**: Introduced `srg-tunnel-client`, a standalone Go-based daemon to completely replace the Node.js `child_process` SSH management. This ensures absolute process stability and decoupled lifecycle management.
+- **Smart Port Retries & Keep-Alive**: The new Go client natively handles automatic SSH tunnel reconnection, state monitoring, and incremental port binding retries (up to 10 attempts) if the target port is occupied.
+- **Cross-Platform Binaries**: Added automated build pipelines (`build-tunnel-client.sh`) supporting amd64 and arm64 architectures across Darwin, Linux, and Windows.
+
+### Changed
+- **Core Architecture Refactoring**: Completely overhauled the `src/core` directory. Decoupled logic by introducing `modeController` (for separated Local/Remote mode handling), `stateManager` (global state management), and `remoteProcessService`, significantly improving maintainability.
+- **Build System Upgrades**: Updated `package.json` to automatically trigger the Go client cross-platform compilation (`build:binaries`) before building the extension package.
+
 ## [0.0.5] - 2026-04-25
 
 ### Fixed
