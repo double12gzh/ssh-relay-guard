@@ -460,9 +460,16 @@ function getDiagCheckName(id: string, t: Translations): string {
 // ---------------------------------------------------------------------------
 
 function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
-	const port = status.remoteProxyPort;
-	const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} <hostname>`;
-	const escapedCmd = tunnelCmd.replace(/'/g, "\\'");
+	const remotePort = status.remoteProxyPort;
+	const localPort = status.localProxyPort;
+	// Basic SSH command
+	const sshCmd = `ssh -fN -R ${remotePort}:127.0.0.1:${localPort} &lt;your-host&gt;`;
+	const sshCmdPlain = `ssh -fN -R ${remotePort}:127.0.0.1:${localPort} <your-host>`;
+	const escapedSshCmd = sshCmdPlain.replace(/'/g, "\\'");
+	// Autossh command with debug logging
+	const autosshCmd = `AUTOSSH_LOGFILE=/tmp/autossh.log AUTOSSH_DEBUG=1 autossh -M 0 -fN -R ${remotePort}:127.0.0.1:${localPort} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 &lt;your-host&gt;`;
+	const autosshCmdPlain = `AUTOSSH_LOGFILE=/tmp/autossh.log AUTOSSH_DEBUG=1 autossh -M 0 -fN -R ${remotePort}:127.0.0.1:${localPort} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <your-host>`;
+	const escapedAutosshCmd = autosshCmdPlain.replace(/'/g, "\\'");
 
 	return `
         <!-- Warning Alert: always in DOM for remote mode, visibility controlled by JS -->
@@ -481,8 +488,12 @@ function buildTunnelAlert(t: Translations, status: ProxyStatus): string {
                 <div class="tunnel-cmd-wrap">
                     <div class="tunnel-cmd-label">${t.tunnelCmdLabel}</div>
                     <div class="tunnel-cmd-row">
-                        <code class="tunnel-cmd-code">${tunnelCmd}</code>
-                        <button class="ab ab-fix ab-sm" onclick="copyCmd('${escapedCmd}')">${t.copyCmd}</button>
+                        <code class="tunnel-cmd-code">${sshCmd}</code>
+                        <button class="ab ab-fix ab-sm" onclick="copyCmd('${escapedSshCmd}')">${t.copyCmd}</button>
+                    </div>
+                    <div class="tunnel-cmd-row" style="margin-top:6px">
+                        <code class="tunnel-cmd-code" style="font-size:9px">${autosshCmd}</code>
+                        <button class="ab ab-fix ab-sm" onclick="copyCmd('${escapedAutosshCmd}')">${t.copyCmd}</button>
                     </div>
                 </div>
                 <div class="alert-actions">

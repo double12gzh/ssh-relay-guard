@@ -160,6 +160,25 @@ export class RemoteModeController {
 					this.dashboardManager.setLocalReconnectionState(state);
 				},
 			),
+
+			// ── Stubs for local-only commands ──────────────────────────────
+			// When users trigger these from a remote window, show a friendly
+			// message instead of the confusing "command not found" error.
+			...(
+				[
+					'enableForwarding',
+					'disableForwarding',
+					'tunnelStatus',
+					'reconnectTunnel',
+				] as const
+			).map((cmd) =>
+				vscode.commands.registerCommand(`ssh-relay-guard.${cmd}`, () => {
+					vscode.window.showWarningMessage(
+						`This command must be run from a LOCAL VS Code window. ` +
+							`Open a new local window (File → New Window), then run this command from there.`,
+					);
+				}),
+			),
 		);
 	}
 
@@ -446,8 +465,8 @@ export class RemoteModeController {
 		proxyPort: number,
 	): Promise<void> {
 		const lp = this.configService.localProxyPort;
-		const tunnelCmd = `ssh -fN -R ${proxyPort}:127.0.0.1:${lp} <hostname>`;
-		const autosshCmd = `autossh -M 0 -fN -R ${proxyPort}:127.0.0.1:${lp} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <hostname>`;
+		const tunnelCmd = `ssh -fN -R ${proxyPort}:127.0.0.1:${lp} <your-host>`;
+		const autosshCmd = `autossh -M 0 -fN -R ${proxyPort}:127.0.0.1:${lp} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 <your-host>`;
 
 		const detailMessage =
 			`Proxy not reachable at ${proxyHost}:${proxyPort}\n\n` +
@@ -479,7 +498,7 @@ export class RemoteModeController {
 		if (selection === 'Copy Tunnel Command') {
 			await vscode.env.clipboard.writeText(tunnelCmd);
 			vscode.window.showInformationMessage(
-				`Copied to clipboard: ${tunnelCmd}\n\nPaste in your LOCAL terminal and replace <hostname>.`,
+				`Copied to clipboard: ${tunnelCmd}\n\nPaste in your LOCAL terminal and replace <your-host> with your SSH hostname.`,
 			);
 		} else if (selection === 'Run Health Check') {
 			vscode.commands.executeCommand('ssh-relay-guard.diagnose');

@@ -54,6 +54,8 @@ export class DashboardManager {
 	private currentLang: Lang = 'zh';
 	/** Track previous proxy reachability to detect disconnection transitions. */
 	private previousProxyReachable: boolean | null = null;
+	/** Lightweight background interval that updates status bar on state transitions (remote only). */
+	private statusBarMonitor: NodeJS.Timeout | undefined;
 
 	constructor(
 		private isLocal: boolean,
@@ -140,6 +142,53 @@ export class DashboardManager {
 		if (this.countdownInterval) {
 			clearInterval(this.countdownInterval);
 			this.countdownInterval = undefined;
+		}
+	}
+
+	/**
+	 * Start a lightweight background monitor that updates the status bar
+	 * in near real-time when proxy reachability changes.
+	 *
+	 * Only runs on the remote side. Checks every 5 seconds and only triggers
+	 * a status bar redraw on actual state transitions (connected ↔ disconnected)
+	 * to minimize overhead.
+	 *
+	 * This is independent of the 30-second auto-refresh cycle, which does
+	 * a more comprehensive status check.
+	 */
+	startStatusBarMonitor(): void {
+		if (this.isLocal || this.statusBarMonitor) {
+			return;
+		}
+
+		this.statusBarMonitor = setInterval(async () => {
+			const proxyType = this.configService.proxyType as 'http' | 'socks5';
+
+			// Protocol-level check: confirms the proxy actually responds,
+			// not just that the port is open (which could be another process).
+			const functional = await isProxyFunctional(
+				this.currentStatus.remoteProxyHost,
+				this.currentStatus.remoteProxyPort,
+				proxyType,
+				2000,
+			);
+
+			// Only update on state transition to avoid unnecessary redraws
+			if (functional !== this.currentStatus.remoteProxyFunctional) {
+				this.currentStatus.remoteProxyFunctional = functional;
+				this.currentStatus.remoteProxyReachable = functional;
+				this.currentStatus.lastUpdated = new Date();
+				this.updateStatusBar();
+				this.updatePanelIfOpen();
+				this.notifyCallbacks();
+			}
+		}, 5000);
+	}
+
+	private stopStatusBarMonitor(): void {
+		if (this.statusBarMonitor) {
+			clearInterval(this.statusBarMonitor);
+			this.statusBarMonitor = undefined;
 		}
 	}
 
@@ -290,8 +339,9 @@ export class DashboardManager {
 					}
 				}
 				const cleanupCmd = `ssh -O exit ${hostname}`;
-				const port = this.configService.remoteProxyPort;
-				const tunnelCmd = `ssh -fN -R ${port}:127.0.0.1:${port} ${hostname}`;
+				const remotePort = this.configService.remoteProxyPort;
+				const localPort = this.configService.localProxyPort;
+				const tunnelCmd = `ssh -fN -R ${remotePort}:127.0.0.1:${localPort} ${hostname}`;
 
 				const action = await vscode.window.showWarningMessage(
 					`This will close the remote VS Code window.\n\n` +
@@ -677,6 +727,7 @@ export class DashboardManager {
 
 	dispose(): void {
 		this.stopAutoRefresh();
+		this.stopStatusBarMonitor();
 		this.statusBarItem.dispose();
 		this.statusPanel?.dispose();
 		this.connectionMonitor.dispose();

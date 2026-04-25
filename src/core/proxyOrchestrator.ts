@@ -48,6 +48,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 		}
 
 		this.dashboardManager.startAutoRefresh();
+		this.dashboardManager.startStatusBarMonitor();
 
 		if (this.isLocal) {
 			const localCtrl = new LocalModeController(

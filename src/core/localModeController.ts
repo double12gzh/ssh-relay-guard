@@ -215,6 +215,51 @@ export class LocalModeController {
 					vscode.window.showInformationMessage('SSH port forwarding is not configured');
 				}
 			}),
+
+			vscode.commands.registerCommand('ssh-relay-guard.reconnectTunnel', async () => {
+				const allStatus = await readAllStatus();
+				if (!allStatus.hosts || allStatus.hosts.length === 0) {
+					vscode.window.showWarningMessage(
+						'No hosts configured. Use "Add Host Forwarding" first.',
+					);
+					return;
+				}
+
+				// If only one host, skip the picker
+				let hostname: string | undefined;
+				if (allStatus.hosts.length === 1) {
+					hostname = allStatus.hosts[0];
+				} else {
+					hostname = await vscode.window.showQuickPick(allStatus.hosts, {
+						placeHolder: 'Select host to reconnect tunnel for',
+					});
+				}
+				if (!hostname) {
+					return;
+				}
+
+				const hostData = allStatus.hostData.get(hostname);
+				const rp = hostData?.port ?? this.configService.remoteProxyPort;
+				const lp = hostData?.localPort ?? this.configService.localProxyPort;
+
+				this.log(
+					`Reconnect command: forcing tunnel re-establishment for ${hostname} (${lp} → ${rp})`,
+				);
+
+				await this.reconnectSSHTunnel(hostname, lp, rp);
+			}),
+
+			// ── Stubs for remote-only commands ─────────────────────────────
+			// When users trigger these from a local window, show a friendly
+			// message instead of the confusing "command not found" error.
+			...(['setup', 'rollback', 'checkProxy'] as const).map((cmd) =>
+				vscode.commands.registerCommand(`ssh-relay-guard.${cmd}`, () => {
+					vscode.window.showWarningMessage(
+						`This command must be run from a REMOTE VS Code window. ` +
+							`Connect to a remote server first, then run this command there.`,
+					);
+				}),
+			),
 		);
 	}
 
@@ -257,13 +302,17 @@ export class LocalModeController {
 				if (!connected) {
 					const manualCmd = `ssh -fN -R ${remotePort}:127.0.0.1:${localPort} ${hostname}`;
 					const action = await vscode.window.showErrorMessage(
-						`Failed to connect to "${hostname}". ` +
-							`Ensure SSH key auth is configured (BatchMode requires key-based auth).`,
-						'Copy Command',
+						`Failed to establish SSH tunnel to "${hostname}". ` +
+							`Possible causes: SSH key not configured, remote port ${remotePort} occupied, ` +
+							`or network timeout. Check logs for details.`,
+						'Show Logs',
+						'Copy Manual Command',
 					);
-					if (action === 'Copy Command') {
+					if (action === 'Copy Manual Command') {
 						await vscode.env.clipboard.writeText(manualCmd);
 						vscode.window.showInformationMessage(`Copied: ${manualCmd}`);
+					} else if (action === 'Show Logs') {
+						vscode.commands.executeCommand('ssh-relay-guard.showOutput');
 					}
 					return;
 				}

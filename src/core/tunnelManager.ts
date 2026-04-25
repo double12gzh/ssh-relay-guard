@@ -123,7 +123,13 @@ export class TunnelManager implements vscode.Disposable {
 	 */
 	async startTunnel(hostname: string, localPort: number, remotePort: number): Promise<boolean> {
 		const socketDir = getSSHSocketDir();
-		const controlPath = `${socketDir}/%r@%h-%p`;
+		// Use a tunnel-specific ControlPath prefix to avoid colliding with user SSH
+		// sessions (e.g., from WezTerm or terminal). config.srg sets ControlMaster auto
+		// with ControlPath ~/.ssh/sockets/%r@%h-%p for regular sessions. If the user
+		// already has an active SSH connection, that session owns the master socket.
+		// Using the same path would cause SRG to multiplex through it, and -R
+		// (RemoteForward) cannot be added to an existing multiplexed connection.
+		const controlPath = `${socketDir}/srg-tunnel-%r@%h-%p`;
 
 		// Stop any existing tunnel for this host first
 		await this.stopTunnel(hostname);
@@ -131,11 +137,13 @@ export class TunnelManager implements vscode.Disposable {
 		// Clean up stale socket
 		await this.cleanStaleSocket(hostname);
 
-		// Brief pause to let socket fully close
-		await this.sleep(500);
+		// Pause to let OS fully release socket files and remote port bindings.
+		// 500ms was too short — the remote sshd child process may still hold
+		// the port for a brief period after the ControlMaster socket is closed.
+		await this.sleep(1500);
 
-		// Clean orphaned local autossh/ssh processes for this connection signature
-		await this.cleanOrphanedProcesses(localPort, remotePort);
+		// Clean orphaned local autossh/ssh processes for this specific host
+		await this.cleanOrphanedProcesses(hostname, localPort, remotePort);
 
 		// Clean remote port binding before we establish the tunnel to prevent Address already in use error
 		await this.cleanRemotePort(hostname, remotePort);
@@ -198,11 +206,22 @@ export class TunnelManager implements vscode.Disposable {
 			const spawnFn = customSpawnForTesting || spawn;
 			const child = spawnFn('autossh', args, {
 				detached: true,
-				stdio: 'ignore',
+				stdio: ['ignore', 'ignore', 'pipe'], // Capture stderr for diagnostics
 				env,
 			});
 
 			child.unref(); // Allow parent to exit independently
+
+			// Collect stderr output to surface SSH errors like "Address already in use".
+			// Buffer is capped to avoid unbounded memory growth.
+			let stderrOutput = '';
+			if (child.stderr) {
+				child.stderr.on('data', (data: Buffer) => {
+					if (stderrOutput.length < 4096) {
+						stderrOutput += data.toString();
+					}
+				});
+			}
 
 			const pid = child.pid;
 			if (!pid) {
@@ -210,12 +229,14 @@ export class TunnelManager implements vscode.Disposable {
 				return false;
 			}
 
-			// Wait for connection to stabilize with polling (up to 15 seconds)
+			// Wait for connection to stabilize with polling (up to 30 seconds).
+			// SSH handshake + key exchange can take 2-5s on good networks, 15s+
+			// on slow ones. ConnectTimeout=15 alone puts 15s at the boundary.
 			let healthy = false;
 			let isAlive = true;
-			for (let i = 0; i < 75; i++) {
-				// 75 * 200ms = 15s
-				await this.sleep(200);
+			for (let i = 0; i < 60; i++) {
+				// 60 * 500ms = 30s
+				await this.sleep(500);
 
 				try {
 					process.kill(pid, 0); // Signal 0 = just check existence
@@ -231,8 +252,9 @@ export class TunnelManager implements vscode.Disposable {
 			}
 
 			if (!isAlive) {
+				const reason = stderrOutput.trim() ? `: ${stderrOutput.trim()}` : '';
 				this.log(
-					`TunnelManager: autossh process ${pid} exited immediately — connection failed`,
+					`TunnelManager: autossh process ${pid} exited immediately — connection failed${reason}`,
 				);
 				return false;
 			}
@@ -251,8 +273,9 @@ export class TunnelManager implements vscode.Disposable {
 				this.log(`TunnelManager: autossh tunnel for ${hostname} established (PID ${pid})`);
 				return true;
 			} else {
+				const hint = stderrOutput.trim() ? ` (stderr: ${stderrOutput.trim()})` : '';
 				this.log(
-					`TunnelManager: autossh (PID ${pid}) couldn't establish tunnel within 15s — terminating`,
+					`TunnelManager: autossh (PID ${pid}) couldn't establish tunnel within 30s — terminating${hint}`,
 				);
 				try {
 					if (child) {
@@ -420,7 +443,7 @@ export class TunnelManager implements vscode.Disposable {
 	 */
 	async checkHealth(hostname: string): Promise<boolean> {
 		const socketDir = getSSHSocketDir();
-		const controlPath = `${socketDir}/%r@%h-%p`;
+		const controlPath = `${socketDir}/srg-tunnel-%r@%h-%p`;
 
 		try {
 			let out = '';
@@ -672,7 +695,11 @@ export class TunnelManager implements vscode.Disposable {
 
 		try {
 			const files = await fs.readdir(socketDir);
-			const matchingFiles = files.filter((f) => f.includes(hostname));
+			// Only clean tunnel-specific sockets (srg-tunnel-*), not user session sockets.
+			// This prevents accidentally killing WezTerm / terminal SSH sessions.
+			const matchingFiles = files.filter(
+				(f) => f.startsWith('srg-tunnel-') && f.includes(hostname),
+			);
 
 			for (const socketFile of matchingFiles) {
 				const socketPath = path.join(socketDir, socketFile);
@@ -713,15 +740,27 @@ export class TunnelManager implements vscode.Disposable {
 	// ── Verification ───────────────────────────────────────────────────
 
 	/**
-	 * Reap any orphaned local autossh or ssh processes matching our exact port forwarding signature
-	 * to prevent multiple headless agents competing for the same connection lifecycle.
+	 * Reap any orphaned local autossh or ssh processes for a specific host.
+	 * The pattern includes both the port signature AND the hostname to avoid
+	 * accidentally killing tunnels for other hosts that share the same ports.
 	 */
-	private async cleanOrphanedProcesses(localPort: number, remotePort: number): Promise<void> {
+	private async cleanOrphanedProcesses(
+		hostname: string,
+		localPort: number,
+		remotePort: number,
+	): Promise<void> {
 		try {
 			const signature = `${remotePort}:127.0.0.1:${localPort}`;
-			// pkill will return 1 if nothing matched, which goes to catch
-			await execAsync(`pkill -9 -f "${signature}"`);
-			this.log(`TunnelManager: Reaped orphaned local processes matching ${signature}`);
+			// Match processes containing BOTH the port forwarding signature AND the hostname.
+			// This prevents killing tunnels for other hosts when they share the same port pair
+			// (e.g., all hosts using the default 7890:127.0.0.1:7890).
+			// pgrep + kill is used instead of pkill to allow AND-matching on two patterns.
+			await execAsync(
+				`pgrep -f "${signature}" | xargs -I{} sh -c 'ps -p {} -o args= | grep -q "${hostname}" && kill -9 {}' || true`,
+			);
+			this.log(
+				`TunnelManager: Reaped orphaned local processes matching ${signature} + ${hostname}`,
+			);
 		} catch {
 			/* clean */
 		}
@@ -737,10 +776,19 @@ export class TunnelManager implements vscode.Disposable {
 			// Find processes listening on the port. If they are sshd, kill them.
 			// This avoids wildly blowing up an innocent user server that happened to overlap.
 			const cmd = `ss -lptn 'sport = :${remotePort}' 2>/dev/null | grep sshd | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs -r kill -9 || true`;
-			await execAsync(`ssh -o BatchMode=yes ${hostname} "${cmd}"`, { timeout: 10000 });
-		} catch {
-			// It may fail purely because there are no processes on the port.
-			// That is normal, so we just log silently.
+			// Use ControlPath=none to open a fresh, independent SSH connection.
+			// Without this, ssh may try to reuse a stale ControlMaster socket
+			// that was just closed by cleanStaleSocket(), causing hangs or errors.
+			await execAsync(
+				`ssh -o BatchMode=yes -o ControlPath=none -o ConnectTimeout=5 ${hostname} "${cmd}"`,
+				{ timeout: 8000 },
+			);
+		} catch (error) {
+			// May fail because: no processes on the port (normal), SSH connection
+			// timeout (slow network), or remote server unreachable.
+			this.log(
+				`TunnelManager: cleanRemotePort for ${hostname}:${remotePort} failed (non-fatal): ${error}`,
+			);
 		}
 	}
 
@@ -756,7 +804,7 @@ export class TunnelManager implements vscode.Disposable {
 		remotePortVerified: boolean;
 	}> {
 		const socketDir = getSSHSocketDir();
-		const controlPath = `${socketDir}/%r@%h-%p`;
+		const controlPath = `${socketDir}/srg-tunnel-%r@%h-%p`;
 
 		let controlMasterRunning = false;
 		let remotePortVerified = false;
