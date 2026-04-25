@@ -198,6 +198,7 @@ async function checkSSHConfig(remoteProxyPort: number): Promise<DiagnosticCheck>
 async function checkRemotePortForward(
 	remoteProxyHost: string,
 	remoteProxyPort: number,
+	localProxyPort: number,
 ): Promise<DiagnosticCheck> {
 	const check: DiagnosticCheck = {
 		id: 'remote-forward',
@@ -213,13 +214,13 @@ async function checkRemotePortForward(
 		} else {
 			check.status = 'error';
 			check.message = `Cannot connect to ${remoteProxyHost}:${remoteProxyPort}`;
-			check.suggestion = `Run on LOCAL terminal: ssh -fN -R ${remoteProxyPort}:127.0.0.1:${remoteProxyPort} <hostname>`;
-			check.fixAction = `copyCommand:ssh -fN -R ${remoteProxyPort}:127.0.0.1:${remoteProxyPort} <hostname>`;
+			check.suggestion = `Run on LOCAL terminal: ssh -fN -R ${remoteProxyPort}:127.0.0.1:${localProxyPort} &lt;your-host&gt;`;
+			check.fixAction = `copyCommand:ssh -fN -R ${remoteProxyPort}:127.0.0.1:${localProxyPort} <your-host>`;
 		}
 	} catch (error) {
 		check.status = 'error';
 		check.message = `Error checking remote port: ${error}`;
-		check.suggestion = `Run on LOCAL terminal: ssh -fN -R ${remoteProxyPort}:127.0.0.1:${remoteProxyPort} <hostname>`;
+		check.suggestion = `Run on LOCAL terminal: ssh -fN -R ${remoteProxyPort}:127.0.0.1:${localProxyPort} &lt;your-host&gt;`;
 	}
 
 	return check;
@@ -731,7 +732,7 @@ export async function runDiagnostics(
 		onProgress?.(checks);
 
 		const [portResult, mgraftcpResult, lsProcessResult, dnsResult] = await Promise.all([
-			checkRemotePortForward(remoteProxyHost, remoteProxyPort),
+			checkRemotePortForward(remoteProxyHost, remoteProxyPort, localProxyPort),
 			checkMgraftcp(extensionPath),
 			checkLanguageServerProcess(),
 			checkDNSPollution(),
