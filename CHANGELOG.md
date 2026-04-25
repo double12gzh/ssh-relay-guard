@@ -1,6 +1,32 @@
 # Change Log
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
+
+## [0.0.5] - 2026-04-25
+
+### Fixed
+
+- **ControlMaster conflict**: SRG tunnels now use a dedicated `srg-tunnel-` ControlPath prefix, preventing collisions with existing SSH sessions from WezTerm or other terminals
+- **Reconnect killing other tunnels**: `cleanOrphanedProcesses` now matches both port signature AND hostname, so reconnecting one host no longer kills other hosts' tunnels
+- **Silent autossh failures**: Capture stderr from autossh process (was `stdio:'ignore'`) to surface actual SSH errors like "Address already in use" in logs
+- **Stale socket cleanup**: `cleanRemotePort` now uses `ControlPath=none` to avoid hanging on stale ControlMaster sockets
+- **Race condition**: Extended port-release sleep from 500ms → 1500ms to let OS fully release resources
+- **Health check timeout**: Extended poll window from 15s/200ms → 30s/500ms for slower network environments
+- **SSH command port mismatch**: Copy commands now correctly use `remotePort:127.0.0.1:localPort` instead of using remotePort for both sides
+- **`<hostname>` invisible in WebView**: HTML-escaped to `<your-host>` so it renders correctly instead of being swallowed as an HTML tag
+- **Misleading error message**: Replaced "Ensure SSH key auth is configured" with actionable message listing common failure causes, added "Show Logs" button
+
+### Added
+
+- **Reconnect Tunnel command**: Manual tunnel re-establishment via Command Palette without disabling/enabling the plugin
+- **Real-time status bar monitor**: Remote mode now checks proxy every 5 seconds and updates the status bar immediately on state transitions (was 30-second delay)
+- **Cross-environment command stubs**: Running local-only commands from remote (or vice versa) now shows a friendly warning instead of "command not found"
+- **Autossh debug command**: Tunnel alert panel now shows both basic `ssh` and `autossh` commands (with `AUTOSSH_LOGFILE` / `AUTOSSH_DEBUG=1`) for easier troubleshooting
+
+### Changed
+
+- Renamed "重试检测 / Retry" button to "刷新状态 / Refresh Status" to clearly distinguish quick status refresh from full diagnostics
+
 ## [0.0.4] -2026-04-22
 
 - Enhance ssh tunnel manager
