@@ -13,6 +13,18 @@
 echo "🔍 Running pre-commit checks..."
 echo ""
 
+# ── 0. Sync package-lock.json version ─────────────────────────────
+# Automatically update package-lock.json if package.json version changed,
+# so the lockfile version never drifts out of sync.
+PKG_VER=$(node -p "require('./package.json').version" 2>/dev/null)
+LOCK_VER=$(node -p "require('./package-lock.json').version" 2>/dev/null)
+if [ -n "$PKG_VER" ] && [ "$PKG_VER" != "$LOCK_VER" ]; then
+    echo "▸ Syncing package-lock.json version ($LOCK_VER → $PKG_VER)..."
+    npm install --package-lock-only --silent 2>/dev/null
+    git add package-lock.json
+    echo "  ✓ package-lock.json synced"
+fi
+
 # ── 1. TypeScript type check ───────────────────────────────────────
 echo "▸ TypeScript type check..."
 npm run check-types --silent 2>/dev/null
