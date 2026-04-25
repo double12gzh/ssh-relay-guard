@@ -138,8 +138,8 @@ export class RemoteModeController {
 				const terminal = vscode.window.createTerminal('SRG Setup');
 				terminal.show();
 				const script = await buildInstallScript(host, port, rewrite, extensionPath);
-				terminal.sendText(`cat > /tmp/srg_setup.sh << 'EOF'\n${script}\nEOF`);
-				terminal.sendText('bash /tmp/srg_setup.sh');
+				const tempFileCmd = `TMP_SCRIPT=$(mktemp /tmp/srg_setup.XXXXXX.sh) && cat > "$TMP_SCRIPT" << 'EOF'\n${script}\nEOF\nbash "$TMP_SCRIPT" && rm -f "$TMP_SCRIPT"`;
+				terminal.sendText(tempFileCmd);
 			}),
 
 			vscode.commands.registerCommand('ssh-relay-guard.rollback', () => {
@@ -295,7 +295,10 @@ export class RemoteModeController {
 				rewriteCloudCode,
 				extensionPath,
 			);
-			const tempScriptPath = path.join(os.tmpdir(), `srg_setup_${Date.now()}.sh`);
+			const tempScriptPath = path.join(
+				os.tmpdir(),
+				`srg_setup_${Date.now()}_${Math.random().toString(36).substring(2, 15)}.sh`,
+			);
 			await fs.writeFile(tempScriptPath, script, { mode: 0o755 });
 
 			const extensionVersion = this.context.extension.packageJSON.version || 'unknown';

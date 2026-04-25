@@ -118,6 +118,14 @@ export class LocalModeController {
 					return;
 				}
 
+				// Validate hostname to prevent command injection
+				if (!/^[\w.\-@]+$/.test(hostname)) {
+					vscode.window.showErrorMessage(
+						'Invalid hostname format. Only alphanumeric characters, dots, hyphens, underscores, and @ are allowed.',
+					);
+					return;
+				}
+
 				const lp = this.configService.localProxyPort;
 				const rp = this.configService.remoteProxyPort;
 				await updateForHost(hostname, rp, lp, true, (m) => this.log(m));

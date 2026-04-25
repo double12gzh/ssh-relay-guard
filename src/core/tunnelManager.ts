@@ -122,6 +122,11 @@ export class TunnelManager implements vscode.Disposable {
 	 * @returns true if tunnel was established successfully
 	 */
 	async startTunnel(hostname: string, localPort: number, remotePort: number): Promise<boolean> {
+		if (!/^[\w.\-@]+$/.test(hostname)) {
+			this.log(`TunnelManager: Invalid hostname format '${hostname}'. Aborting.`);
+			return false;
+		}
+
 		const socketDir = getSSHSocketDir();
 		// Use a tunnel-specific ControlPath prefix to avoid colliding with user SSH
 		// sessions (e.g., from WezTerm or terminal). config.srg sets ControlMaster auto
