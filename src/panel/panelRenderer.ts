@@ -209,6 +209,7 @@ export function buildTrafficHtml(
 
 	if (isLocal) {
 		const hosts = status.configuredHosts ?? [];
+		const hostPortData = status.hostPortData ?? {};
 		const hostListHtml =
 			hosts.length > 0
 				? hosts
@@ -217,7 +218,7 @@ export function buildTrafficHtml(
                 <div class="host-row">
                     <div class="host-dot"></div>
                     <span class="host-name">${h}</span>
-                    <span class="host-port">:${status.remoteProxyPort}</span>
+                    <span class="host-port">:${hostPortData[h] ?? status.remoteProxyPort}</span>
                 </div>`,
 						)
 						.join('')

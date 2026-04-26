@@ -44,6 +44,10 @@ SRG 采用**本地 + 远程双端部署**模式，两端各有分工：
 
 - 本地已运行代理软件（Clash / V2Ray / 其他），且 Antigravity AI 功能**在本地可用**
 - 远程为 Linux x86_64 服务器，可通过 SSH 连接
+- **SSH 免密登录** — 隧道守护进程在后台运行（`BatchMode=yes`），无法弹出密码输入提示。你需要使用以下方式之一：
+  - **无密码短语**的 SSH 密钥
+  - 密钥已通过 ssh-agent 预加载（`ssh-add ~/.ssh/id_ed25519`）
+  - macOS 钥匙串集成（在 `~/.ssh/config` 中添加 `AddKeysToAgent yes` + `UseKeychain yes`）
 
 ---
 
@@ -73,7 +77,7 @@ SRG 采用**本地 + 远程双端部署**模式，两端各有分工：
 |---|---|---|
 | `ssh-relay-guard.enableLocalForwarding` | `true` | 启用 SSH 反向隧道管理 |
 | `ssh-relay-guard.localProxyPort` | `7890` | 本地代理端口（如 Clash、V2Ray） |
-| `ssh-relay-guard.remoteProxyPort` | `7890` | 远程代理端口（须与本地一致） |
+| `ssh-relay-guard.remoteProxyPort` | `7890` | 默认远程代理端口。若被占用，隧道会自动协商到下一个可用端口 |
 | `ssh-relay-guard.remoteProxyHost` | `127.0.0.1` | 远程代理主机地址 |
 | `ssh-relay-guard.proxyType` | `http` | 代理协议：`http` 或 `socks5` |
 | `ssh-relay-guard.showStatusOnStartup` | `true` | 连接时显示状态通知 |

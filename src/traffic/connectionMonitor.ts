@@ -127,10 +127,14 @@ export class ConnectionMonitor {
 	setLocalReconnectionState(reconnecting: boolean): void {
 		if (this.stats.localReconnecting !== reconnecting) {
 			this.stats.localReconnecting = reconnecting;
-			// Notify listeners immediately
-			for (const callback of this.updateCallbacks) {
-				callback(this.getStats());
-			}
+			this.notifyCallbacks();
+		}
+	}
+
+	private notifyCallbacks(): void {
+		const snapshot = this.getStats();
+		for (const callback of this.updateCallbacks) {
+			callback(snapshot);
 		}
 	}
 
@@ -196,9 +200,7 @@ export class ConnectionMonitor {
 		this.stats.lastUpdated = new Date();
 
 		// Notify callbacks
-		for (const callback of this.updateCallbacks) {
-			callback(this.getStats());
-		}
+		this.notifyCallbacks();
 	}
 
 	/**
