@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { runDiagnostics, DiagnosticReport, generateReportText } from '../diagnostics/healthChecker';
 import { ConnectionMonitor, TrafficStats } from '../traffic/connectionMonitor';
 import { ConfigService } from '../core/configService';
+import { StateManager, ProxyState } from '../core/stateManager';
 import { isPortReachable, isProxyFunctional, isSrgSetupCompleted } from '../utils/portProbe';
 import { killTargetProcess } from '../utils/processUtils';
 import { dict, Lang } from './translations';
@@ -12,45 +13,26 @@ import {
 	resolveStatusAppearance,
 } from './panelRenderer';
 
-export interface ProxyStatus {
+export interface ProxyStatus extends ProxyState {
 	runningLocation: 'local' | 'remote';
-	sshConfigEnabled: boolean;
 	localProxyPort: number;
 	remoteProxyPort: number;
 	remoteProxyHost: string;
-	localProxyReachable: boolean;
-	remoteProxyReachable: boolean;
-	/** True only when the remote port responds like a real proxy (protocol handshake). */
-	remoteProxyFunctional: boolean;
-	lastUpdated: Date;
-	languageServerConfigured?: boolean;
-	remoteSetupCompleted?: boolean;
-	/** Whether any host has been configured locally (config.srg has entries) */
-	hasConfiguredHosts?: boolean;
-	/** List of configured host names from config.srg */
-	configuredHosts?: string[];
 }
-
-type StatusUpdateCallback = (status: ProxyStatus) => void;
-type ConfigChangeCallback = () => Promise<void>;
 
 const REFRESH_INTERVAL_SEC = 30;
 
 export class DashboardManager {
 	private statusBarItem: vscode.StatusBarItem;
-	private currentStatus: ProxyStatus;
-	private updateCallbacks: StatusUpdateCallback[] = [];
 	private refreshInterval: NodeJS.Timeout | undefined;
 	private statusPanel: vscode.WebviewPanel | undefined;
 	private countdownInterval: NodeJS.Timeout | undefined;
 	private secondsUntilRefresh: number = REFRESH_INTERVAL_SEC;
-	private onConfigChange: ConfigChangeCallback | undefined;
 
 	// New properties for unified dashboard
 	private connectionMonitor: ConnectionMonitor;
 	private currentDiagnosticReport: DiagnosticReport | null = null;
 	private isRunningDiagnostics: boolean = false;
-	private isVerifying: boolean = false;
 	private currentLang: Lang = 'zh';
 	/** Track previous proxy reachability to detect disconnection transitions. */
 	private previousProxyReachable: boolean | null = null;
@@ -61,6 +43,7 @@ export class DashboardManager {
 		private isLocal: boolean,
 		private context: vscode.ExtensionContext,
 		private configService: ConfigService,
+		private stateManager: StateManager,
 	) {
 		this.statusBarItem = vscode.window.createStatusBarItem(
 			vscode.StatusBarAlignment.Left,
@@ -69,26 +52,30 @@ export class DashboardManager {
 		this.statusBarItem.command = 'ssh-relay-guard.showStatusPanel';
 		this.statusBarItem.name = 'SRG';
 
-		this.currentStatus = {
-			runningLocation: isLocal ? 'local' : 'remote',
-			sshConfigEnabled: false,
-			localProxyPort: configService.localProxyPort,
-			remoteProxyPort: configService.remoteProxyPort,
-			remoteProxyHost: configService.remoteProxyHost,
-			localProxyReachable: false,
-			remoteProxyReachable: false,
-			remoteProxyFunctional: false,
-			lastUpdated: new Date(),
-		};
-
 		// Initialize connection monitor
 		this.connectionMonitor = new ConnectionMonitor(configService);
 
 		// Load saved language preference (default to Chinese)
 		this.currentLang = this.context.globalState.get<Lang>('uiLanguage', 'zh');
 
+		this.stateManager.onDidChangeState(() => {
+			this.updateStatusBar();
+			this.updatePanelIfOpen();
+		});
+
 		this.updateStatusBar();
 		this.statusBarItem.show();
+	}
+
+	private get currentStatus(): ProxyStatus {
+		const state = this.stateManager.getState();
+		return {
+			...state,
+			runningLocation: this.isLocal ? 'local' : 'remote',
+			localProxyPort: this.configService.localProxyPort,
+			remoteProxyPort: state.detectedRemotePort ?? this.configService.remoteProxyPort,
+			remoteProxyHost: this.configService.remoteProxyHost,
+		};
 	}
 
 	/**
@@ -96,24 +83,19 @@ export class DashboardManager {
 	 * Used during startup full-connectivity checks to prevent premature green.
 	 */
 	setVerifying(verifying: boolean): void {
-		this.isVerifying = verifying;
-		this.updateStatusBar();
+		this.stateManager.updateState({ isVerifying: verifying });
 	}
 
 	/**
-	 * Set config change callback for SSH config updates
+	 * Deprecated: Use stateManager.onRequestConfigApply directly
 	 */
-	setConfigChangeCallback(callback: ConfigChangeCallback): void {
-		this.onConfigChange = callback;
+	setConfigChangeCallback(callback: () => Promise<void>): void {
+		this.stateManager.onRequestConfigApply(callback);
 	}
 
-	onStatusUpdate(callback: StatusUpdateCallback): vscode.Disposable {
-		this.updateCallbacks.push(callback);
-		return new vscode.Disposable(() => {
-			const index = this.updateCallbacks.indexOf(callback);
-			if (index >= 0) {
-				this.updateCallbacks.splice(index, 1);
-			}
+	onStatusUpdate(callback: (status: ProxyStatus) => void): vscode.Disposable {
+		return this.stateManager.onDidChangeState(() => {
+			callback(this.currentStatus);
 		});
 	}
 
@@ -167,20 +149,18 @@ export class DashboardManager {
 			// Protocol-level check: confirms the proxy actually responds,
 			// not just that the port is open (which could be another process).
 			const functional = await isProxyFunctional(
-				this.currentStatus.remoteProxyHost,
-				this.currentStatus.remoteProxyPort,
+				this.configService.remoteProxyHost,
+				this.configService.remoteProxyPort,
 				proxyType,
 				2000,
 			);
 
 			// Only update on state transition to avoid unnecessary redraws
 			if (functional !== this.currentStatus.remoteProxyFunctional) {
-				this.currentStatus.remoteProxyFunctional = functional;
-				this.currentStatus.remoteProxyReachable = functional;
-				this.currentStatus.lastUpdated = new Date();
-				this.updateStatusBar();
-				this.updatePanelIfOpen();
-				this.notifyCallbacks();
+				this.stateManager.updateState({
+					remoteProxyFunctional: functional,
+					remoteProxyReachable: functional,
+				});
 			}
 		}, 5000);
 	}
@@ -193,21 +173,20 @@ export class DashboardManager {
 	}
 
 	async refreshStatus(): Promise<void> {
-		this.currentStatus.localProxyPort = this.configService.localProxyPort;
-		this.currentStatus.remoteProxyPort = this.configService.remoteProxyPort;
-		this.currentStatus.remoteProxyHost = this.configService.remoteProxyHost;
+		let newState: Partial<ProxyState> = {};
 
 		if (this.isLocal) {
-			this.currentStatus.localProxyReachable = await isPortReachable(
+			const localProxyReachable = await isPortReachable(
 				'127.0.0.1',
-				this.currentStatus.localProxyPort,
+				this.configService.localProxyPort,
 			);
+			newState = { localProxyReachable };
 		} else {
 			const proxyType = this.configService.proxyType as 'http' | 'socks5';
 			const [functional, setupDone] = await Promise.all([
 				isProxyFunctional(
-					this.currentStatus.remoteProxyHost,
-					this.currentStatus.remoteProxyPort,
+					this.configService.remoteProxyHost,
+					this.configService.remoteProxyPort,
 					proxyType,
 				),
 				isSrgSetupCompleted(),
@@ -216,9 +195,11 @@ export class DashboardManager {
 			// If proxy is functional at protocol level, it guarantees port reachability
 			const reachable = functional;
 
-			this.currentStatus.remoteProxyReachable = reachable;
-			this.currentStatus.remoteProxyFunctional = functional;
-			this.currentStatus.remoteSetupCompleted = setupDone;
+			newState = {
+				remoteProxyReachable: reachable,
+				remoteProxyFunctional: functional,
+				remoteSetupCompleted: setupDone,
+			};
 
 			// Detect proxy disconnect transition: was reachable → now unreachable
 			if (this.previousProxyReachable === true && !reachable && setupDone) {
@@ -236,37 +217,25 @@ export class DashboardManager {
 			this.previousProxyReachable = reachable;
 		}
 
-		this.currentStatus.lastUpdated = new Date();
 		this.secondsUntilRefresh = REFRESH_INTERVAL_SEC;
-		this.updateStatusBar();
-		this.updatePanelIfOpen();
-		this.notifyCallbacks();
+		this.stateManager.updateState(newState);
 	}
 
-	updateSSHConfigStatus(enabled: boolean, port?: number, hosts?: string[]): void {
+	updateSSHConfigStatus(enabled: boolean, hosts?: string[]): void {
 		const hasHosts = hosts !== undefined && hosts.length > 0;
-		this.currentStatus.sshConfigEnabled = enabled && hasHosts;
-		if (port !== undefined) {
-			this.currentStatus.remoteProxyPort = port;
-		}
-		this.currentStatus.hasConfiguredHosts = hasHosts;
-		this.currentStatus.configuredHosts = hosts;
-		this.currentStatus.lastUpdated = new Date();
-		this.updateStatusBar();
-		this.updatePanelIfOpen();
-		this.notifyCallbacks();
+		this.stateManager.updateState({
+			sshConfigEnabled: enabled && hasHosts,
+			hasConfiguredHosts: hasHosts,
+			configuredHosts: hosts,
+		});
 	}
 
 	updateLanguageServerStatus(configured: boolean): void {
-		this.currentStatus.languageServerConfigured = configured;
-		this.currentStatus.lastUpdated = new Date();
-		this.updateStatusBar();
-		this.updatePanelIfOpen();
-		this.notifyCallbacks();
+		this.stateManager.updateState({ languageServerConfigured: configured });
 	}
 
 	getStatus(): ProxyStatus {
-		return { ...this.currentStatus };
+		return this.currentStatus;
 	}
 
 	showStatusPanel(): void {
@@ -290,6 +259,7 @@ export class DashboardManager {
 			this.connectionMonitor.start();
 			this.connectionMonitor.onUpdate(() => {
 				this.updatePanelIfOpen();
+				this.updateStatusBar();
 			});
 		}
 
@@ -546,9 +516,7 @@ export class DashboardManager {
 			}
 
 			// Trigger config change callback
-			if (this.onConfigChange) {
-				await this.onConfigChange();
-			}
+			this.stateManager.requestConfigApply();
 
 			await this.refreshStatus();
 
@@ -617,7 +585,7 @@ export class DashboardManager {
 
 	private updateStatusBar(): void {
 		// During startup verification: show spinning icon, don't resolve final status
-		if (this.isVerifying) {
+		if (this.currentStatus.isVerifying) {
 			this.statusBarItem.text = '$(sync~spin) SRG';
 			this.statusBarItem.color = '#fbbf24';
 			this.statusBarItem.tooltip =
@@ -635,8 +603,14 @@ export class DashboardManager {
 
 		let tooltip: string;
 		if (this.isLocal) {
-			if (status.sshConfigEnabled && status.localProxyReachable) {
+			if (
+				status.sshConfigEnabled &&
+				status.activeTunnelsCount > 0 &&
+				status.localProxyReachable
+			) {
 				tooltip = 'SSH Relay Guard (SRG)\n✅ Connected';
+			} else if (status.sshConfigEnabled && status.activeTunnelsCount === 0) {
+				tooltip = 'SSH Relay Guard (SRG)\n⚠️ SSH configured, but tunnel is not running';
 			} else if (status.sshConfigEnabled) {
 				tooltip = 'SSH Relay Guard (SRG)\n⚠️ SSH configured, proxy unreachable';
 			} else if (status.hasConfiguredHosts === false) {
@@ -679,13 +653,6 @@ export class DashboardManager {
 		}
 		this.statusBarItem.tooltip = tooltip;
 		this.statusBarItem.backgroundColor = undefined;
-	}
-
-	private notifyCallbacks(): void {
-		const status = this.getStatus();
-		for (const callback of this.updateCallbacks) {
-			callback(status);
-		}
 	}
 
 	private buildPanelContext(): PanelContext {
@@ -731,6 +698,5 @@ export class DashboardManager {
 		this.statusBarItem.dispose();
 		this.statusPanel?.dispose();
 		this.connectionMonitor.dispose();
-		this.updateCallbacks = [];
 	}
 }

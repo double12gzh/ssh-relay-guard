@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
+import { StateManager } from './stateManager';
 import { TunnelManager } from './tunnelManager';
 import { LocalModeController } from './localModeController';
 import { RemoteModeController } from './remoteModeController';
+import { CommandRegistry } from './commands/commandRegistry';
 import { isRunningLocally } from '../utils/portProbe';
 
 /**
@@ -11,13 +13,15 @@ import { isRunningLocally } from '../utils/portProbe';
  *
  * Creates child modules and delegates to the appropriate mode controller
  * (LocalModeController or RemoteModeController) based on the runtime
- * environment. Registers only the common commands shared between modes.
+ * environment. Registers commands through CommandRegistry.
  */
 export class ProxyOrchestrator implements vscode.Disposable {
 	private outputChannel: vscode.OutputChannel;
 	private configService: ConfigService;
+	private stateManager: StateManager;
 	private dashboardManager: DashboardManager;
 	private tunnelManager: TunnelManager;
+	private commandRegistry: CommandRegistry;
 	private isLocal: boolean;
 
 	constructor(
@@ -27,8 +31,15 @@ export class ProxyOrchestrator implements vscode.Disposable {
 		this.outputChannel = outputChannel;
 		this.isLocal = isRunningLocally();
 		this.configService = new ConfigService();
-		this.dashboardManager = new DashboardManager(this.isLocal, context, this.configService);
-		this.tunnelManager = new TunnelManager((m) => this.log(m));
+		this.stateManager = new StateManager();
+		this.dashboardManager = new DashboardManager(
+			this.isLocal,
+			context,
+			this.configService,
+			this.stateManager,
+		);
+		this.tunnelManager = new TunnelManager(context.extensionUri.fsPath, (m) => this.log(m));
+		this.commandRegistry = new CommandRegistry(context, this.isLocal);
 	}
 
 	/**
@@ -41,6 +52,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 		this.context.subscriptions.push(this.dashboardManager);
 
 		this.registerCommonCommands();
+		this.commandRegistry.registerCommands();
 
 		// Remote: show spinning icon immediately, before any async work or auto-refresh
 		if (!this.isLocal) {
@@ -56,16 +68,33 @@ export class ProxyOrchestrator implements vscode.Disposable {
 				this.configService,
 				this.dashboardManager,
 				this.tunnelManager,
+				this.stateManager,
 				(m) => this.log(m),
 			);
+
+			this.commandRegistry.onEnableForwarding = async () =>
+				await localCtrl.enableForwarding();
+			this.commandRegistry.onDisableForwarding = async () =>
+				await localCtrl.disableForwarding();
+			this.commandRegistry.onTunnelStatus = async () => await localCtrl.tunnelStatus();
+			this.commandRegistry.onReconnectTunnel = async () => await localCtrl.reconnectTunnel();
+
 			localCtrl.activate().catch((err) => this.log(`activateLocal error: ${err}`));
 		} else {
 			const remoteCtrl = new RemoteModeController(
 				this.context,
 				this.configService,
 				this.dashboardManager,
+				this.stateManager,
 				(m) => this.log(m),
 			);
+
+			this.commandRegistry.onSetupRemote = async () => await remoteCtrl.setup();
+			this.commandRegistry.onRollbackRemote = async () => await remoteCtrl.rollback();
+			this.commandRegistry.onCheckProxy = async () => await remoteCtrl.checkProxy();
+			this.commandRegistry.onSetReconnectingState = (state) =>
+				remoteCtrl.setReconnectingState(state);
+
 			remoteCtrl.activate().catch((err) => this.log(`activateRemote error: ${err}`));
 		}
 	}

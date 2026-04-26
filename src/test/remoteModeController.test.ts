@@ -4,11 +4,13 @@ import * as vscode from 'vscode';
 import { RemoteModeController } from '../core/remoteModeController';
 import { ConfigService } from '../core/configService';
 import { DashboardManager } from '../panel/dashboardManager';
+import { StateManager } from '../core/stateManager';
 
 suite('RemoteModeController', () => {
 	let controller: RemoteModeController;
 	let mockContext: vscode.ExtensionContext;
 	let mockConfigService: ConfigService;
+	let stateManager: StateManager;
 
 	setup(() => {
 		mockContext = {
@@ -21,6 +23,7 @@ suite('RemoteModeController', () => {
 		} as any;
 
 		mockConfigService = new ConfigService();
+		stateManager = new StateManager();
 		const mockDashboardManager = {} as DashboardManager;
 		const mockLog = (msg: string) => {};
 
@@ -28,6 +31,7 @@ suite('RemoteModeController', () => {
 			mockContext,
 			mockConfigService,
 			mockDashboardManager,
+			stateManager,
 			mockLog,
 		);
 	});

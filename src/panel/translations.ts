@@ -23,7 +23,7 @@ const zh = {
 	notConfigured: '未配置',
 	enableForwarding: '全局转发开关',
 	localPort: '本地端口',
-	remotePort: '远程端口',
+	remotePort: '远程端口（默认）',
 	proxyHost: '代理地址',
 	proxyPort: '代理端口',
 	proxyType: '代理类型',
@@ -92,7 +92,8 @@ const zh = {
 	rollbackTitle: '回滚操作',
 	rollbackDesc: '此功能用于恢复之前的语言服务配置。仅当遇到严重问题或卸载插件前使用。',
 	localPortTip: '💡 此端口需与本地代理软件（如 Clash、V2Ray）的监听端口一致，默认通常为 7890',
-	remotePortTipLocal: '💡 此端口即 SSH 隧道在远端的监听端口，远端 SRG 面板将自动同步此值',
+	remotePortTipLocal:
+		'💡 新主机的默认远程端口。若端口被占用，隧道将自动协商到下一个可用端口（显示在下方主机列表中）',
 	globalForwardingTip:
 		'💡 此开关控制所有已配置主机的转发。添加新主机请使用命令面板的「Add Host Forwarding」',
 	remotePortTipRemote: '🔒 以上配置由本地端管理，如需修改请在本地 SRG 面板中调整',
@@ -125,7 +126,7 @@ const en: Translations = {
 	notConfigured: 'Not Configured',
 	enableForwarding: 'Global Forwarding',
 	localPort: 'Local Port',
-	remotePort: 'Remote Port',
+	remotePort: 'Remote Port (Default)',
 	proxyHost: 'Proxy Host',
 	proxyPort: 'Proxy Port',
 	proxyType: 'Proxy Type',
@@ -200,7 +201,7 @@ const en: Translations = {
 	localPortTip:
 		'💡 Must match your local proxy software port (e.g., Clash, V2Ray). Default is usually 7890',
 	remotePortTipLocal:
-		'💡 SSH tunnel port on the remote side. The Remote SRG panel will auto-sync this value',
+		'💡 Default remote port for new hosts. If occupied, the tunnel will auto-negotiate to the next available port (shown in the host list below)',
 	globalForwardingTip:
 		'💡 Controls forwarding for all configured hosts. To add a new host, use "Add Host Forwarding" from the Command Palette',
 	remotePortTipRemote:

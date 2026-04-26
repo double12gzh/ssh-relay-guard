@@ -5,11 +5,13 @@ import { LocalModeController } from '../core/localModeController';
 import { ConfigService } from '../core/configService';
 import { DashboardManager } from '../panel/dashboardManager';
 import { TunnelManager } from '../core/tunnelManager';
+import { StateManager } from '../core/stateManager';
 
 suite('LocalModeController', () => {
 	let controller: LocalModeController;
 	let mockContext: vscode.ExtensionContext;
 	let mockConfigService: ConfigService;
+	let stateManager: StateManager;
 
 	setup(() => {
 		mockContext = {
@@ -22,6 +24,7 @@ suite('LocalModeController', () => {
 		} as any;
 
 		mockConfigService = new ConfigService();
+		stateManager = new StateManager();
 		const mockDashboardManager = {} as DashboardManager;
 		const mockTunnelManager = {} as TunnelManager;
 		const mockLog = (msg: string) => {};
@@ -31,6 +34,7 @@ suite('LocalModeController', () => {
 			mockConfigService,
 			mockDashboardManager,
 			mockTunnelManager,
+			stateManager,
 			mockLog,
 		);
 	});

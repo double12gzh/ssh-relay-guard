@@ -2,6 +2,22 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.0.6] - 2026-04-27
+
+### Added
+- **Standalone Tunnel Daemon (Go)**: Introduced `srg-tunnel-client`, a standalone Go-based daemon to completely replace the Node.js `child_process` SSH management. This ensures absolute process stability and decoupled lifecycle management.
+- **Smart Port Retries & Keep-Alive**: The new Go client natively handles automatic SSH tunnel reconnection, state monitoring, and incremental port binding retries (up to 10 attempts) if the target port is occupied.
+- **Cross-Platform Binaries**: Added automated build pipelines (`build-tunnel-client.sh`) supporting amd64 and arm64 architectures across Darwin, Linux, and Windows.
+
+### Changed
+- **Core Architecture Refactoring**: Completely overhauled the `src/core` directory. Decoupled logic by introducing `modeController` (for separated Local/Remote mode handling), `stateManager` (global state management), and `remoteProcessService`, significantly improving maintainability.
+- **Build System Upgrades**: Updated `package.json` to automatically trigger the Go client cross-platform compilation (`build:binaries`) before building the extension package.
+
+### Fixed
+- **Deep Proxy Protocol Detection**: Replaced simple TCP port scanning with robust SOCKS5/HTTP protocol handshakes (`isProxyFunctional`) to accurately detect dynamic tunnel ports. This eliminates critical false-positives where unrelated background services (like Node.js debuggers) occupying ephemeral ports would hijack the language server configuration.
+- **Multi-Window State Desync**: Fixed an edge-case bug where VS Code global configuration updates were skipped during local tunnel reconnections if the port matched local records. This ensures that concurrent multi-host sessions properly trigger remote synchronization events, preventing remote webviews and wrapper scripts from being permanently stuck on stale ports.
+- **Per-Host State Isolation**: Fully decoupled remote port tracking in the UI and state manager. Dynamic port auto-negotiation (e.g., 7890 -> 7891) for one host now strictly isolates its UI and script updates without polluting or breaking the connection configuration of other concurrent remote sessions.
+
 ## [0.0.5] - 2026-04-25
 
 ### Fixed

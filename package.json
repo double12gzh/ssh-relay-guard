@@ -4,7 +4,7 @@
   "displayName": "SSH Relay Guard",
   "description": "SSH Relay Guard (SRG) manages reverse SSH tunnels and transparently routes traffic through your local proxy, bypassing network restrictions and DNS pollution on remote servers.",
   "icon": "docs/srg-icon.png",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "repository": {
     "type": "git",
     "url": "https://github.com/double12gzh/ssh-relay-guard"
@@ -138,7 +138,8 @@
   },
   "scripts": {
     "vscode:uninstall": "node src/lifecycle/uninstall.js",
-    "build:package": "npm run package",
+    "build:binaries": "bash scripts/build-tunnel-client.sh",
+    "build:package": "npm run build:binaries && npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
