@@ -73,7 +73,7 @@ export class DashboardManager {
 			...state,
 			runningLocation: this.isLocal ? 'local' : 'remote',
 			localProxyPort: this.configService.localProxyPort,
-			remoteProxyPort: this.configService.remoteProxyPort,
+			remoteProxyPort: state.detectedRemotePort ?? this.configService.remoteProxyPort,
 			remoteProxyHost: this.configService.remoteProxyHost,
 		};
 	}

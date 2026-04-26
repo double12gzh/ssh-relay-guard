@@ -3,7 +3,7 @@ import { buildInstallScript, buildRestoreScript } from '../setup/remoteInstaller
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
 import { StateManager } from './stateManager';
-import { isPortReachable } from '../utils/portProbe';
+import { isPortReachable, isProxyFunctional } from '../utils/portProbe';
 import { getMonitoredProcess, promptReloadWindow } from '../utils/processUtils';
 import { RemoteSetupService } from './services/remoteSetupService';
 import { RemoteProcessService } from './services/remoteProcessService';
@@ -39,6 +39,62 @@ export class RemoteModeController implements IModeController {
 	}
 
 	/**
+	 * Detect the actual tunnel port on this remote server.
+	 *
+	 * The global `remoteProxyPort` setting may be stale if another host's
+	 * tunnel negotiated a different port. This method probes the configured
+	 * port first, then tries port+1..port+10 (matching the Go daemon's retry
+	 * range) to find the real tunnel.
+	 *
+	 * @returns The detected port, or the configured port as fallback.
+	 */
+	private async detectTunnelPort(host: string, configuredPort: number): Promise<number> {
+		const proxyType = this.configService.proxyType as 'http' | 'socks5' | 'any';
+		const timeout = 3000; // Increased to 3s for high-latency SSH connections
+
+		// 1. Check if we already have a functional port for this remote window
+		const previousPort = this.stateManager.getState().detectedRemotePort;
+		if (previousPort && previousPort !== configuredPort) {
+			if (await isProxyFunctional(host, previousPort, proxyType, timeout)) {
+				this.log(
+					`detectTunnelPort: previously detected port ${previousPort} is still functional`,
+				);
+				return previousPort;
+			}
+		}
+
+		// 2. Fast path: configured port is reachable AND acts like a proxy
+		if (await isProxyFunctional(host, configuredPort, proxyType, timeout)) {
+			return configuredPort;
+		}
+
+		// 3. Probe nearby ports in parallel (Go daemon uses max 10 retries)
+		const MAX_OFFSET = 10;
+		const probes = Array.from({ length: MAX_OFFSET }, (_, i) => {
+			const port = configuredPort + i + 1;
+			return isProxyFunctional(host, port, proxyType, timeout).then((ok) =>
+				ok ? port : null,
+			);
+		});
+
+		const results = await Promise.all(probes);
+		const detectedPort = results.find((p): p is number => p !== null);
+
+		if (detectedPort) {
+			this.log(
+				`detectTunnelPort: configured port ${configuredPort} unreachable, detected tunnel on port ${detectedPort}`,
+			);
+			return detectedPort;
+		}
+
+		// No port found — tunnel likely not established, use configured port
+		this.log(
+			`detectTunnelPort: no reachable port in range ${configuredPort}-${configuredPort + MAX_OFFSET}, using configured ${configuredPort}`,
+		);
+		return configuredPort;
+	}
+
+	/**
 	 * Activate remote mode: ensure binaries, run setup, configure proxy,
 	 * register commands, listen for config changes, run startup checks.
 	 */
@@ -64,24 +120,37 @@ export class RemoteModeController implements IModeController {
 			const port = this.configService.remoteProxyPort;
 			const type = this.configService.proxyType;
 			const rewrite = this.configService.rewriteCloudCodeEndpoint;
-			this.log(`Config changed from panel, re-running setup: ${host}:${port} (${type})`);
-			await this.runSetupAndApply(host, port, type, rewrite, extensionPath);
+			const actual = await this.detectTunnelPort(host, port);
+			this.stateManager.updateState({ detectedRemotePort: actual }); // Update state for dashboard
+			this.log(`Config changed from panel, re-running setup: ${host}:${actual} (${type})`);
+			await this.runSetupAndApply(host, actual, type, rewrite, extensionPath);
+			await this.setupService.configureHttpProxy(host, actual, type);
 		});
 
 		this.log(`Remote Proxy: ${remoteHost}:${remotePort} (${proxyType})`);
 		this.log(`Extension path: ${extensionPath}`);
 		this.log('Auto-running setup script...');
 
+		// Detect actual tunnel port (may differ from configured if another host
+		// negotiated a different port and updated the global setting).
+		const actualPort = await this.detectTunnelPort(remoteHost, remotePort);
+		if (actualPort !== remotePort) {
+			this.log(
+				`Using detected tunnel port ${actualPort} instead of configured ${remotePort}`,
+			);
+			this.stateManager.updateState({ detectedRemotePort: actualPort });
+		}
+
 		const rewriteCloudCode = this.configService.rewriteCloudCodeEndpoint;
 		await this.runSetupAndApply(
 			remoteHost,
-			remotePort,
+			actualPort,
 			proxyType,
 			rewriteCloudCode,
 			extensionPath,
 		);
 
-		await this.setupService.configureHttpProxy(remoteHost, remotePort, proxyType);
+		await this.setupService.configureHttpProxy(remoteHost, actualPort, proxyType);
 
 		this.context.subscriptions.push(
 			this.configService.onChange(async () => {
@@ -89,8 +158,11 @@ export class RemoteModeController implements IModeController {
 				const port = this.configService.remoteProxyPort;
 				const type = this.configService.proxyType;
 				const rewrite = this.configService.rewriteCloudCodeEndpoint;
-				this.log(`Config changed, re-running setup: ${host}:${port} (${type})`);
-				await this.runSetupAndApply(host, port, type, rewrite, extensionPath);
+				const actual = await this.detectTunnelPort(host, port);
+				this.stateManager.updateState({ detectedRemotePort: actual });
+				this.log(`Config changed, re-running setup: ${host}:${actual} (${type})`);
+				await this.runSetupAndApply(host, actual, type, rewrite, extensionPath);
+				await this.setupService.configureHttpProxy(host, actual, type);
 				await this.dashboardManager.refreshStatus();
 			}),
 		);

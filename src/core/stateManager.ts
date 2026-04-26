@@ -11,6 +11,10 @@ export interface ProxyState {
 	languageServerConfigured?: boolean;
 	hasConfiguredHosts?: boolean;
 	configuredHosts?: string[];
+	/** The actual detected tunnel port on the remote side (overrides global remoteProxyPort if different) */
+	detectedRemotePort?: number;
+	/** Per-host actual remote port (from SSH config). Falls back to global remoteProxyPort if absent. */
+	hostPortData?: Record<string, number>;
 	activeTunnelsCount: number;
 	lastUpdated: Date;
 }

@@ -15,6 +15,7 @@ interface TunnelInfo {
 	negotiatedPort: number;
 	process: ChildProcess;
 	statusFile: string;
+	logFile: string;
 	startedAt: Date;
 }
 
@@ -51,7 +52,12 @@ export class TunnelManager implements vscode.Disposable {
 		hostname: string,
 		localPort: number,
 		remotePort: number,
-	): Promise<{ connected: boolean; negotiatedPort?: number }> {
+	): Promise<{
+		connected: boolean;
+		negotiatedPort?: number;
+		logFile?: string;
+		logContent?: string;
+	}> {
 		if (!/^[\w.\-@]+$/.test(hostname)) {
 			this.log(`TunnelManager: Invalid hostname format '${hostname}'. Aborting.`);
 			return { connected: false };
@@ -143,18 +149,31 @@ export class TunnelManager implements vscode.Disposable {
 				negotiatedPort: negotiatedPort,
 				process: child,
 				statusFile,
+				logFile,
 				startedAt: new Date(),
 			});
 			this.log(
 				`TunnelManager: Tunnel for ${hostname} established on remote port ${negotiatedPort}`,
 			);
-			return { connected: true, negotiatedPort };
+			this.log(`TunnelManager: Daemon log file: ${logFile}`);
+			return { connected: true, negotiatedPort, logFile };
 		} else {
 			this.log(`TunnelManager: Failed to establish tunnel for ${hostname}`);
+			// Read daemon log to surface SSH-level errors
+			let logContent: string | undefined;
+			try {
+				const fullLog = await fs.readFile(logFile, 'utf-8');
+				const lines = fullLog.trim().split('\n');
+				const tail = lines.slice(-30).join('\n');
+				logContent = tail;
+				this.log(`TunnelManager: Daemon log (last 30 lines):\n${tail}`);
+			} catch {
+				this.log(`TunnelManager: Could not read daemon log at ${logFile}`);
+			}
 			try {
 				child.kill('SIGTERM');
 			} catch {}
-			return { connected: false };
+			return { connected: false, logFile, logContent };
 		}
 	}
 

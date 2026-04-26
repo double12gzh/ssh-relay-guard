@@ -6,7 +6,7 @@ import { StateManager } from './stateManager';
 import { TunnelManager } from './tunnelManager';
 import { IModeController } from './modeController';
 import { isPortReachable } from '../utils/portProbe';
-import { updateForHost, readStatus, readAllStatus } from './sshConfigManager';
+import { updateForHost, readAllStatus, HostConfigData } from './sshConfigManager';
 
 /**
  * LocalModeController — Handles all local-side SRG functionality.
@@ -27,6 +27,20 @@ export class LocalModeController implements IModeController {
 		private stateManager: StateManager,
 		private log: (message: string) => void,
 	) {}
+
+	/**
+	 * Extract per-host remote port data from SSH config hostData.
+	 * Returns a Record suitable for storing in ProxyState.
+	 */
+	private extractHostPortData(hostData: Map<string, HostConfigData>): Record<string, number> {
+		const result: Record<string, number> = {};
+		for (const [host, data] of hostData) {
+			if (data.port !== undefined) {
+				result[host] = data.port;
+			}
+		}
+		return result;
+	}
 
 	/**
 	 * Activate local mode: set up config callbacks, check proxy,
@@ -54,19 +68,21 @@ export class LocalModeController implements IModeController {
 				sshConfigEnabled: enabled && hasHosts,
 				hasConfiguredHosts: hasHosts,
 				configuredHosts: status.hosts,
+				hostPortData: this.extractHostPortData(status.hostData),
 			});
 		});
 
-		const initialStatus = await readStatus();
-		const hasHosts = (initialStatus.hosts?.length ?? 0) > 0;
+		const initialStatus = await readAllStatus();
+		const hasHosts = initialStatus.hosts.length > 0;
 		this.stateManager.updateState({
 			sshConfigEnabled: initialStatus.enabled && hasHosts,
 			hasConfiguredHosts: hasHosts,
-			configuredHosts: initialStatus.hosts ?? [],
+			configuredHosts: initialStatus.hosts,
+			hostPortData: this.extractHostPortData(initialStatus.hostData),
 		});
 
 		// First-run prompt: guide user to configure their first remote host
-		if (!initialStatus.hosts || initialStatus.hosts.length === 0) {
+		if (initialStatus.hosts.length === 0) {
 			this.log('No hosts configured — showing first-run prompt');
 			vscode.window
 				.showInformationMessage(
@@ -113,6 +129,7 @@ export class LocalModeController implements IModeController {
 					sshConfigEnabled: enabled && hs,
 					hasConfiguredHosts: hs,
 					configuredHosts: status.hosts,
+					hostPortData: this.extractHostPortData(status.hostData),
 				});
 				await this.dashboardManager.refreshStatus();
 			}),
@@ -142,12 +159,13 @@ export class LocalModeController implements IModeController {
 		const rp = this.configService.remoteProxyPort;
 		await updateForHost(hostname, rp, lp, true, (m) => this.log(m));
 
-		const status = await readStatus();
-		const hs = status.hosts ? status.hosts.length > 0 : false;
+		const status = await readAllStatus();
+		const hs = status.hosts.length > 0;
 		this.stateManager.updateState({
 			sshConfigEnabled: status.enabled && hs,
 			hasConfiguredHosts: hs,
 			configuredHosts: status.hosts,
+			hostPortData: this.extractHostPortData(status.hostData),
 		});
 		await this.dashboardManager.refreshStatus();
 
@@ -185,8 +203,8 @@ export class LocalModeController implements IModeController {
 	}
 
 	public async disableForwarding(): Promise<void> {
-		const status = await readStatus();
-		if (!status.hosts || status.hosts.length === 0) {
+		const status = await readAllStatus();
+		if (status.hosts.length === 0) {
 			vscode.window.showInformationMessage('No hosts configured');
 			return;
 		}
@@ -215,12 +233,13 @@ export class LocalModeController implements IModeController {
 		const activeTunnels = this.tunnelManager.getManagedHosts().length;
 
 		await updateForHost(hostname, 0, 0, false, (m) => this.log(m));
-		const newStatus = await readStatus();
-		const hs = newStatus.hosts ? newStatus.hosts.length > 0 : false;
+		const newStatus = await readAllStatus();
+		const hs = newStatus.hosts.length > 0;
 		this.stateManager.updateState({
 			sshConfigEnabled: newStatus.enabled && hs,
 			hasConfiguredHosts: hs,
 			configuredHosts: newStatus.hosts,
+			hostPortData: this.extractHostPortData(newStatus.hostData),
 			activeTunnelsCount: activeTunnels,
 		});
 		await this.dashboardManager.refreshStatus();
@@ -228,14 +247,15 @@ export class LocalModeController implements IModeController {
 	}
 
 	public async tunnelStatus(): Promise<void> {
-		const status = await readStatus();
-		const hs = status.hosts ? status.hosts.length > 0 : false;
+		const status = await readAllStatus();
+		const hs = status.hosts.length > 0;
 		this.stateManager.updateState({
 			sshConfigEnabled: status.enabled && hs,
 			hasConfiguredHosts: hs,
 			configuredHosts: status.hosts,
+			hostPortData: this.extractHostPortData(status.hostData),
 		});
-		if (status.hosts && status.hosts.length > 0) {
+		if (status.hosts.length > 0) {
 			vscode.window.showInformationMessage(
 				`Forwarding configured for: ${status.hosts.join(', ')} (port ${status.port})`,
 			);
@@ -302,16 +322,20 @@ export class LocalModeController implements IModeController {
 					message: 'Starting native Go daemon (auto-reconnect enabled)...',
 				});
 
-				const { connected, negotiatedPort } = await this.tunnelManager.startTunnel(
-					hostname,
-					localPort,
-					remotePort,
-				);
+				const { connected, negotiatedPort, logContent } =
+					await this.tunnelManager.startTunnel(hostname, localPort, remotePort);
 
 				const activeTunnels = this.tunnelManager.getManagedHosts().length;
 				this.stateManager.updateState({ activeTunnelsCount: activeTunnels });
 
 				if (!connected) {
+					// Surface daemon log in output channel so "Show Logs" is immediately useful
+					if (logContent) {
+						this.log(`── SSH Tunnel Daemon Log (${hostname}) ──`);
+						this.log(logContent);
+						this.log(`── End of Daemon Log ──`);
+					}
+
 					const manualCmd = `srg-tunnel-client -host ${hostname} -local-port ${localPort} -remote-port ${remotePort}`;
 					const action = await vscode.window.showErrorMessage(
 						`Failed to establish SSH tunnel to "${hostname}". ` +
@@ -341,38 +365,42 @@ export class LocalModeController implements IModeController {
 						this.log(m),
 					);
 
-					// Also update the global workspace configuration so the remote window
-					// auto-detects the change, updates the UI, and injects the new port
-					// into the Language Server wrapper script immediately via its onChange listener.
-					try {
-						const config = vscode.workspace.getConfiguration('ssh-relay-guard');
-						await config.update(
-							'remoteProxyPort',
-							negotiatedPort,
-							vscode.ConfigurationTarget.Global,
-						);
-					} catch (e) {
-						this.log(`Failed to sync remoteProxyPort to workspace settings: ${e}`);
-					}
-
-					const status = await readStatus();
-					const hs = status.hosts ? status.hosts.length > 0 : false;
+					const updatedStatus = await readAllStatus();
+					const hs = updatedStatus.hosts.length > 0;
 					this.stateManager.updateState({
-						sshConfigEnabled: status.enabled && hs,
+						sshConfigEnabled: updatedStatus.enabled && hs,
 						hasConfiguredHosts: hs,
-						configuredHosts: status.hosts,
+						configuredHosts: updatedStatus.hosts,
+						hostPortData: this.extractHostPortData(updatedStatus.hostData),
 					});
-					// We might also want to trigger an IPC command to the remote window if connected.
-					// Since config.srg is shared, the remote side will pick it up on the next setup run or if we force a refresh.
 				} else {
 					this.log(
 						`reconnectSSHTunnel: tunnel established on requested port ${remotePort}`,
 					);
 					vscode.window.showInformationMessage(
-						`✅ SSH tunnel to "${hostname}" established on port ${remotePort}! (Native Daemon)`,
+						`SSH tunnel to "${hostname}" re-established successfully on port ${remotePort}.`,
 					);
 				}
 
+				// ALWAYS update global remoteProxyPort setting so the remote extension
+				// picks up the negotiated port for http.proxy and LS wrapper.
+				// This is critical in multi-window scenarios: even if negotiatedPort === remotePort
+				// (the port in ~/.ssh/config), the global VS Code setting might have been
+				// changed by another host's window! We must claim it back.
+				try {
+					const config = vscode.workspace.getConfiguration('ssh-relay-guard');
+					if (config.get('remoteProxyPort') !== negotiatedPort) {
+						await config.update(
+							'remoteProxyPort',
+							negotiatedPort,
+							vscode.ConfigurationTarget.Global,
+						);
+						this.log(`Synced global remoteProxyPort to ${negotiatedPort}`);
+					}
+				} catch (e) {
+					this.log(`Failed to sync remoteProxyPort to workspace settings: ${e}`);
+				}
+				this.dashboardManager.setLocalReconnectionState(false);
 				await this.dashboardManager.refreshStatus();
 			},
 		);

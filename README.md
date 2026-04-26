@@ -44,6 +44,10 @@ SRG uses a **local + remote dual deployment** model, with each side handling dif
 
 - A running local proxy (Clash / V2Ray / etc.) with working Antigravity AI features **confirmed locally**
 - A remote Linux x86_64 server accessible via SSH
+- **Passwordless SSH authentication** — The SSH tunnel daemon runs in the background with `BatchMode=yes` and cannot prompt for passwords or passphrases. You must use one of:
+  - An SSH key **without** a passphrase
+  - An SSH key with passphrase **pre-loaded into ssh-agent** (`ssh-add ~/.ssh/id_ed25519`)
+  - macOS Keychain integration (`AddKeysToAgent yes` + `UseKeychain yes` in `~/.ssh/config`)
 
 ---
 
@@ -73,7 +77,7 @@ SRG uses a **local + remote dual deployment** model, with each side handling dif
 |---|---|---|
 | `ssh-relay-guard.enableLocalForwarding` | `true` | Enable SSH reverse tunnel management |
 | `ssh-relay-guard.localProxyPort` | `7890` | Local proxy port (e.g., Clash, V2Ray) |
-| `ssh-relay-guard.remoteProxyPort` | `7890` | Remote proxy port (must match local) |
+| `ssh-relay-guard.remoteProxyPort` | `7890` | Default remote proxy port. If occupied, the tunnel auto-negotiates to the next available port |
 | `ssh-relay-guard.remoteProxyHost` | `127.0.0.1` | Remote proxy host address |
 | `ssh-relay-guard.proxyType` | `http` | Proxy protocol: `http` or `socks5` |
 | `ssh-relay-guard.showStatusOnStartup` | `true` | Show status notification on connection |
