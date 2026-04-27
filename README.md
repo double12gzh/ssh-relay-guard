@@ -162,6 +162,8 @@ srg teardown my-server
 | `srg-proxy <cmd>` | Run a single command through transparent proxy |
 | `srg-status` | Show current proxy status |
 
+> **Note:** When using these commands from an external SSH terminal (not VS Code's integrated terminal), the proxy port is auto-detected by probing the configured port and nearby ports (+1 to +10) using a `curl` proxy handshake. If the SSH tunnel port was auto-negotiated to a different port due to conflicts, the CLI tools will find it automatically. If no reachable proxy port is found, a warning is shown.
+
 ---
 
 ## SSH Config Format

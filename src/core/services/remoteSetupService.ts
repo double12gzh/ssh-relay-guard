@@ -57,13 +57,23 @@ export class RemoteSetupService {
 		proxyPort: number,
 		proxyType: string,
 	): Promise<void> {
-		const httpConfig = vscode.workspace.getConfiguration('http');
-		const currentProxy = httpConfig.get<string>('proxy', '');
-
 		const proxyUrl =
 			proxyType === 'socks5'
 				? `socks5://${proxyHost}:${proxyPort}`
 				: `http://${proxyHost}:${proxyPort}`;
+
+		// ── Multi-user isolation ──────────────────────────────────────
+		// Set process-level env vars so ALL child processes in this
+		// VS Code Server instance use the correct proxy. These are
+		// per-process and do not conflict with other users' servers.
+		process.env.HTTP_PROXY = proxyUrl;
+		process.env.HTTPS_PROXY = proxyUrl;
+		process.env.http_proxy = proxyUrl;
+		process.env.https_proxy = proxyUrl;
+		this.log(`Set process.env HTTP(S)_PROXY = ${proxyUrl}`);
+
+		const httpConfig = vscode.workspace.getConfiguration('http');
+		const currentProxy = httpConfig.get<string>('proxy', '');
 
 		if (!this.configService.setGlobalHttpProxy) {
 			if (currentProxy === proxyUrl) {

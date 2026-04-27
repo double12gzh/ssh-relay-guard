@@ -23,7 +23,7 @@ suite('ConfigService Tests', () => {
 		assert.strictEqual(configService.remoteProxyHost, '127.0.0.1');
 		assert.strictEqual(configService.proxyType, 'http');
 		assert.strictEqual(configService.enableLocalForwarding, true);
-		assert.strictEqual(configService.setGlobalHttpProxy, true);
+		assert.strictEqual(configService.setGlobalHttpProxy, false);
 	});
 
 	test('should update when vscode configuration changes', async () => {

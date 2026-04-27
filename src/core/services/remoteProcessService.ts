@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import { killTargetProcess } from '../../utils/processUtils';
+import {
+	killTargetProcess,
+	getMonitoredProcess,
+	countSiblingServerInstances,
+} from '../../utils/processUtils';
 
 /**
  * Service for managing the lifecycle of processes (e.g. Language Server)
@@ -14,6 +18,23 @@ export class RemoteProcessService {
 	 * If kill fails, shows manual instructions.
 	 */
 	public async killLSAndAutoReload(): Promise<void> {
+		// Check if killing would affect sibling windows
+		const proc = await getMonitoredProcess();
+		if (proc?.isPersistent) {
+			const siblingCount = await countSiblingServerInstances();
+			if (siblingCount > 1) {
+				const action = await vscode.window.showWarningMessage(
+					`⚠️ ${siblingCount} windows share this Language Server. Killing it will restart LS for ALL windows. Continue?`,
+					'Kill & Reload All',
+					'Cancel',
+				);
+				if (action !== 'Kill & Reload All') {
+					this.log('Kill cancelled by user (sibling sessions detected)');
+					return;
+				}
+			}
+		}
+
 		const killed = await killTargetProcess((m) => this.log(m));
 		if (killed) {
 			this.log('LS killed, prompting user to reload window...');

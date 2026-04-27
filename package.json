@@ -129,9 +129,9 @@
         },
         "ssh-relay-guard.setGlobalHttpProxy": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "scope": "machine-overridable",
-          "description": "Configure VS Code's global http.proxy to point to the relay. If disabled, only the Language Server will be proxied via mgraftcp."
+          "description": "Write http.proxy into VS Code's global settings.json. Disable (default) for multi-user shared accounts to avoid conflicts. The proxy is always available via process.env regardless of this setting."
         }
       }
     }

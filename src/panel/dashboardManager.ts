@@ -472,6 +472,22 @@ export class DashboardManager {
 		const config = vscode.workspace.getConfiguration('ssh-relay-guard');
 
 		try {
+			// ── Multi-user isolation ──────────────────────────────────────
+			// On remote side, also update process.env for immediate
+			// per-session effect without affecting other users.
+			if (!this.isLocal) {
+				const host = newConfig.remoteProxyHost ?? this.configService.remoteProxyHost;
+				const port = newConfig.remoteProxyPort ?? this.configService.remoteProxyPort;
+				const type = newConfig.proxyType ?? this.configService.proxyType;
+				const rewrite =
+					newConfig.rewriteCloudCodeEndpoint ??
+					this.configService.rewriteCloudCodeEndpoint;
+				process.env.SRG_PROXY_ADDR = `${host}:${port}`;
+				process.env.SRG_PROXY_TYPE = type;
+				process.env.SRG_PROXY_PORT = String(port);
+				process.env.SRG_REWRITE_CLOUDCODE = rewrite ? 'true' : 'false';
+			}
+
 			if (newConfig.localProxyPort !== undefined) {
 				await config.update(
 					'localProxyPort',

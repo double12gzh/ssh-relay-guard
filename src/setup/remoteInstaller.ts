@@ -52,9 +52,9 @@ export async function buildInstallScript(
 
 	const lsWrapperPath = path.join(extensionPath, 'srg-cli', 'remote', 'ls-wrapper.sh');
 	let lsWrapperContent = await read(lsWrapperPath, 'utf-8');
-	// Convert srg-cli placeholders to setup-proxy.sh sed placeholders for the wrapper
-	lsWrapperContent = lsWrapperContent.replace(/__SRG_ADDR__/g, '__PROXY_ADDR_PLACEHOLDER__');
-	lsWrapperContent = lsWrapperContent.replace(/__SRG_TYPE__/g, '__PROXY_TYPE_PLACEHOLDER__');
+	// Convert srg-cli placeholders to bash sed placeholders
+	// Note: __SRG_ADDR__ and __SRG_TYPE__ were removed from ls-wrapper.sh
+	// for multi-user isolation (proxy config is now env-var only).
 	lsWrapperContent = lsWrapperContent.replace(
 		/__EXTENSION_BIN_PATH__/g,
 		'__EXTENSION_BIN_PATH_PLACEHOLDER__',

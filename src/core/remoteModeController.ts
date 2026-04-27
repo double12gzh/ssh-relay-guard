@@ -103,6 +103,14 @@ export class RemoteModeController implements IModeController {
 		const remotePort = this.configService.remoteProxyPort;
 		const proxyType = this.configService.proxyType;
 
+		// ── Multi-user isolation ──────────────────────────────────────────
+		// Inject proxy config into process.env so the LS wrapper (spawned
+		// by the IDE's own extension, not by SRG) inherits session-specific
+		// values. Each VS Code Server is a separate OS process, so different
+		// users get different env values — zero cross-user interference.
+		const rewriteCloudCode = this.configService.rewriteCloudCodeEndpoint;
+		this.updateProxyEnv(remoteHost, remotePort, proxyType, rewriteCloudCode);
+
 		if (process.platform !== 'linux') {
 			this.log(
 				`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`,
@@ -120,7 +128,9 @@ export class RemoteModeController implements IModeController {
 			const port = this.configService.remoteProxyPort;
 			const type = this.configService.proxyType;
 			const rewrite = this.configService.rewriteCloudCodeEndpoint;
+			this.updateProxyEnv(host, port, type, rewrite);
 			const actual = await this.detectTunnelPort(host, port);
+			this.updateProxyEnv(host, actual, type, rewrite); // Update with detected port
 			this.stateManager.updateState({ detectedRemotePort: actual }); // Update state for dashboard
 			this.log(`Config changed from panel, re-running setup: ${host}:${actual} (${type})`);
 			await this.runSetupAndApply(host, actual, type, rewrite, extensionPath);
@@ -138,10 +148,9 @@ export class RemoteModeController implements IModeController {
 			this.log(
 				`Using detected tunnel port ${actualPort} instead of configured ${remotePort}`,
 			);
+			this.updateProxyEnv(remoteHost, actualPort, proxyType, rewriteCloudCode);
 			this.stateManager.updateState({ detectedRemotePort: actualPort });
 		}
-
-		const rewriteCloudCode = this.configService.rewriteCloudCodeEndpoint;
 		await this.runSetupAndApply(
 			remoteHost,
 			actualPort,
@@ -158,7 +167,9 @@ export class RemoteModeController implements IModeController {
 				const port = this.configService.remoteProxyPort;
 				const type = this.configService.proxyType;
 				const rewrite = this.configService.rewriteCloudCodeEndpoint;
+				this.updateProxyEnv(host, port, type, rewrite);
 				const actual = await this.detectTunnelPort(host, port);
+				this.updateProxyEnv(host, actual, type, rewrite); // Update with detected port
 				this.stateManager.updateState({ detectedRemotePort: actual });
 				this.log(`Config changed, re-running setup: ${host}:${actual} (${type})`);
 				await this.runSetupAndApply(host, actual, type, rewrite, extensionPath);
@@ -301,5 +312,28 @@ export class RemoteModeController implements IModeController {
 		} catch (error) {
 			this.log(`Startup status check failed: ${error}`);
 		}
+	}
+
+	// ── Multi-user isolation helpers ──────────────────────────────────
+
+	/**
+	 * Inject proxy configuration into process.env.
+	 *
+	 * Each VS Code Remote SSH connection creates a separate Server process.
+	 * Setting process.env here makes these values available to ALL child
+	 * processes (including the LS wrapper) within this Server instance,
+	 * while other users' Server processes have their own independent env.
+	 */
+	private updateProxyEnv(
+		host: string,
+		port: number,
+		proxyType: string,
+		rewriteCloudCode: boolean,
+	): void {
+		process.env.SRG_PROXY_ADDR = `${host}:${port}`;
+		process.env.SRG_PROXY_TYPE = proxyType;
+		process.env.SRG_PROXY_PORT = String(port);
+		process.env.SRG_REWRITE_CLOUDCODE = rewriteCloudCode ? 'true' : 'false';
+		this.log(`Injected process.env: SRG_PROXY_ADDR=${host}:${port}, type=${proxyType}`);
 	}
 }

@@ -10,9 +10,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 
 # Proxy configuration
-PROXY_ADDR="__SRG_ADDR__"
-PROXY_TYPE="__SRG_TYPE__"
-REWRITE_CLOUDCODE="__REWRITE_CLOUDCODE_PLACEHOLDER__"
+# Dynamic: read from environment (per-session isolation for multi-user)
+# No hardcoded fallback — prevents cross-user conflicts on shared accounts
+PROXY_ADDR="${SRG_PROXY_ADDR:-}"
+PROXY_TYPE="${SRG_PROXY_TYPE:-http}"
+REWRITE_CLOUDCODE="${SRG_REWRITE_CLOUDCODE:-false}"
 EXTENSION_BIN_PATH="__EXTENSION_BIN_PATH__"
 
 # Dynamically find mgraftcp-fakedns and libdnsredir
@@ -70,6 +72,11 @@ find_binaries() {
 
 BINARIES=$(find_binaries)
 MGRAFTCP_PATH=$(echo "$BINARIES" | head -1)
+
+# 如果没有代理地址（无环境变量，如外部 SSH 终端），直接运行原始 LS
+if [ -z "$PROXY_ADDR" ]; then
+    exec "$SCRIPT_DIR/$SCRIPT_NAME.bak" "$@"
+fi
 
 # 如果 mgraftcp 不存在，直接运行原始 LS
 if [ -z "$MGRAFTCP_PATH" ] || [ ! -x "$MGRAFTCP_PATH" ]; then

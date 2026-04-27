@@ -130,24 +130,6 @@ get_wrapper_version() {
     grep -oP 'WRAPPER_VERSION="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
 }
 
-# Extract proxy address from a wrapper script
-get_wrapper_proxy_addr() {
-    local wrapper="$1"
-    grep -oP 'PROXY_ADDR="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
-}
-
-# Extract proxy type from a wrapper script
-get_wrapper_proxy_type() {
-    local wrapper="$1"
-    grep -oP 'PROXY_TYPE="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
-}
-
-# Extract rewrite cloudcode flag from a wrapper script
-get_wrapper_rewrite_cloudcode() {
-    local wrapper="$1"
-    grep -oP 'REWRITE_CLOUDCODE="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
-}
-
 # Check if target is ANY bash script (broad check for backup safety)
 # If the file starts with #!/bin/bash, it's NOT the original ELF binary
 # and must NOT be backed up as .bak (regardless of who created it)
@@ -165,6 +147,10 @@ is_srg_wrapper() {
 
 # Determine if wrapper needs to be updated
 # Returns: 0 = needs update (with reason in stdout), 1 = up-to-date
+#
+# Note: Proxy address/type/rewrite are NOT checked here because the wrapper
+# reads them from environment variables at runtime (multi-user isolation).
+# Only the extension version triggers a wrapper rewrite.
 check_needs_update() {
     local target="$1"
     
@@ -178,28 +164,6 @@ check_needs_update() {
     local wrapper_version=$(get_wrapper_version "$target")
     if [ "$EXTENSION_VERSION" != "$wrapper_version" ]; then
         echo "version:$wrapper_version->$EXTENSION_VERSION"
-        return 0
-    fi
-    
-    # Check 3: Proxy address mismatch → needs update
-    local wrapper_proxy_addr=$(get_wrapper_proxy_addr "$target")
-    if [ "$PROXY_ADDR" != "$wrapper_proxy_addr" ]; then
-        echo "proxy_addr:$wrapper_proxy_addr->$PROXY_ADDR"
-        return 0
-    fi
-    
-    # Check 4: Proxy type mismatch → needs update
-    local wrapper_proxy_type=$(get_wrapper_proxy_type "$target")
-    if [ "$PROXY_TYPE" != "$wrapper_proxy_type" ]; then
-        echo "proxy_type:$wrapper_proxy_type->$PROXY_TYPE"
-        return 0
-    fi
-    
-    # Check 5: Rewrite CloudCode mismatch → needs update
-    local wrapper_rewrite_cloudcode=$(get_wrapper_rewrite_cloudcode "$target")
-    # Using REWRITE_CLOUDCODE string directly since we added sed substitution for it
-    if [ "$REWRITE_CLOUDCODE" != "$wrapper_rewrite_cloudcode" ]; then
-        echo "rewrite_cloudcode:$wrapper_rewrite_cloudcode->$REWRITE_CLOUDCODE"
         return 0
     fi
     
@@ -243,6 +207,13 @@ echo ""
 while IFS= read -r TARGET; do
     [ -z "$TARGET" ] && continue
     
+    # Multi-window safety: use flock to prevent concurrent writes to the same wrapper
+    LOCK_FILE="${TARGET}.srg.lock"
+    exec 9>"$LOCK_FILE"
+    if command -v flock >/dev/null 2>&1; then
+        flock -w 10 9 || { warn_log "Could not acquire lock for $TARGET, skipping"; continue; }
+    fi
+
     echo "----------------------------------------"
     echo "Target: $TARGET"
     BAK="${TARGET}.bak"
@@ -253,15 +224,11 @@ while IFS= read -r TARGET; do
         
         # Log current wrapper state for debugging
         if is_srg_wrapper "$TARGET"; then
-            debug_log "Current wrapper state:"
-            debug_log "  Version: $(get_wrapper_version "$TARGET")"
-            debug_log "  Proxy: $(get_wrapper_proxy_addr "$TARGET")"
-            debug_log "  Type: $(get_wrapper_proxy_type "$TARGET")"
-            debug_log "  Rewrite: $(get_wrapper_rewrite_cloudcode "$TARGET")"
+            debug_log "Current wrapper version: $(get_wrapper_version "$TARGET")"
         fi
     else
         # Already up-to-date
-        info_log "Already up-to-date (v$EXTENSION_VERSION, $PROXY_ADDR, $PROXY_TYPE, Rewrite:$REWRITE_CLOUDCODE)"
+        info_log "Already up-to-date (v$EXTENSION_VERSION)"
         SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
         continue
     fi
@@ -288,10 +255,8 @@ while IFS= read -r TARGET; do
 __INJECT_LS_WRAPPER__
 
     # Replace placeholders with actual values
-    sed -i "s|__PROXY_ADDR_PLACEHOLDER__|$PROXY_ADDR|g" "$TARGET"
-    sed -i "s|__PROXY_TYPE_PLACEHOLDER__|$PROXY_TYPE|g" "$TARGET"
+    # Note: proxy addr/type/rewrite are NOT baked in — read from env at runtime
     sed -i "s|__EXTENSION_VERSION_PLACEHOLDER__|$EXTENSION_VERSION|g" "$TARGET"
-    sed -i "s|__REWRITE_CLOUDCODE_PLACEHOLDER__|$REWRITE_CLOUDCODE|g" "$TARGET"
     sed -i "s|__TIMESTAMP_PLACEHOLDER__|$(date -Iseconds)|g" "$TARGET"
     
     # Set extension bin path if provided
@@ -307,6 +272,10 @@ __INJECT_LS_WRAPPER__
     info_log "  Version: $EXTENSION_VERSION"
     info_log "  Proxy: $PROXY_ADDR ($PROXY_TYPE)"
     CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
+
+    # Release lock (fd 9 auto-closes at loop end or next iteration)
+    rm -f "$LOCK_FILE"
+    exec 9>&-
 
 done <<< "$TARGETS"
 
