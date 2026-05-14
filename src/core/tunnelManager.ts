@@ -188,9 +188,12 @@ export class TunnelManager implements vscode.Disposable {
 			info.process.kill('SIGTERM');
 		} catch {}
 
-		try {
-			await fs.unlink(info.statusFile);
-		} catch {}
+		// Clean up temp files (statusFile + logFile)
+		for (const tmpFile of [info.statusFile, info.logFile]) {
+			try {
+				await fs.unlink(tmpFile);
+			} catch {}
+		}
 
 		this.tunnels.delete(hostname);
 	}
@@ -210,10 +213,22 @@ export class TunnelManager implements vscode.Disposable {
 		try {
 			const execAsync = promisify(exec);
 			if (isWin) {
-				// Windows fallback (less precise, kills all srg-tunnel-client)
-				await execAsync(`taskkill /F /IM srg-tunnel-client-windows-amd64.exe /T`).catch(
-					() => {},
-				);
+				// Windows: use WMIC to filter by command-line args for precise host matching.
+				// Falls back to broad taskkill if WMIC is unavailable (e.g. Windows 11 Home).
+				const safeHost = hostname.replace(/'/g, "''");
+				await execAsync(
+					`wmic process where "CommandLine like '%-host ${safeHost}%' and Name like 'srg-tunnel-client%'" call terminate`,
+				).catch(async () => {
+					// WMIC unavailable — try PowerShell
+					await execAsync(
+						`powershell -NoProfile -Command "Get-Process srg-tunnel-client* -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*-host ${safeHost}*' } | Stop-Process -Force -ErrorAction SilentlyContinue"`,
+					).catch(async () => {
+						// Last resort: broad kill (original behavior)
+						await execAsync(
+							`taskkill /F /IM srg-tunnel-client-windows-amd64.exe /T`,
+						).catch(() => {});
+					});
+				});
 			} else {
 				// pkill -f to match the exact command line args
 				await execAsync(`pkill -9 -f "srg-tunnel-client.*-host ${hostname}"`).catch(
@@ -273,6 +288,10 @@ export class TunnelManager implements vscode.Disposable {
 			try {
 				info.process.kill('SIGTERM');
 			} catch {}
+			// Best-effort cleanup of temp files on extension shutdown
+			for (const tmpFile of [info.statusFile, info.logFile]) {
+				fs.unlink(tmpFile).catch(() => {});
+			}
 		}
 		this.tunnels.clear();
 	}

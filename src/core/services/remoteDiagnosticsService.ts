@@ -1,10 +1,9 @@
 import * as vscode from 'vscode';
 import { ConfigService } from '../configService';
-import { isPortReachable, isSrgSetupCompleted } from '../../utils/portProbe';
+import { isPortReachable, isProxyFunctional, isSrgSetupCompleted } from '../../utils/portProbe';
 import {
 	isMgraftcpRunning,
 	getMonitoredProcess,
-	execAsync,
 	killTargetProcess,
 } from '../../utils/processUtils';
 import { RemoteProcessService } from './remoteProcessService';
@@ -70,47 +69,18 @@ export class RemoteDiagnosticsService {
 		}
 		this.log('');
 
-		let httpOk = false;
-		let socks5Ok = false;
-
+		// Protocol-level connectivity tests (curl google.com) are intentionally
+		// skipped during startup to avoid the 10-30s delay they cause.
+		// They are available on-demand via the "Run Diagnostics" button in the
+		// SRG panel (healthChecker → checkExternalConnectivity).
+		// Instead, derive proxyFunctional from the fast protocol handshake below.
+		let proxyFunctional = false;
 		if (proxyReachable) {
-			const currentProxyType = this.configService.proxyType;
-
-			this.log(`[Test 3 & 4] Testing HTTP and SOCKS5 proxy connectivity in parallel...`);
-			const httpCmd = `curl -x http://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`;
-			const socks5Cmd = `curl -x socks5://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`;
-
-			const runCurl = async (cmd: string): Promise<boolean> => {
-				try {
-					const { stdout } = await execAsync(cmd, { timeout: 15000 });
-					const code = stdout.trim();
-					return code === '200' || code === '301' || code === '302';
-				} catch {
-					return false;
-				}
-			};
-
-			const [httpRes, socks5Res] = await Promise.all([runCurl(httpCmd), runCurl(socks5Cmd)]);
-			httpOk = httpRes;
-			socks5Ok = socks5Res;
-
-			const httpMarker =
-				currentProxyType === 'http'
-					? httpOk
-						? ' ← Current'
-						: ' ← Current (⚠️ NOT WORKING)'
-					: '';
-			this.log(`  Result (HTTP): ${httpOk ? '✓ OK' : '✗ Failed'}${httpMarker}`);
-
-			const socks5Marker =
-				currentProxyType === 'socks5'
-					? socks5Ok
-						? ' ← Current'
-						: ' ← Current (⚠️ NOT WORKING)'
-					: '';
-			this.log(`  Result (SOCKS5): ${socks5Ok ? '✓ OK' : '✗ Failed'}${socks5Marker}`);
-			this.log('');
+			const proxyType = this.configService.proxyType as 'http' | 'socks5' | 'any';
+			proxyFunctional = await isProxyFunctional(proxyHost, proxyPort, proxyType, 3000);
+			this.log(`[Test 3] Proxy protocol handshake: ${proxyFunctional ? '✓ OK' : '✗ Failed'}`);
 		}
+		this.log('');
 
 		this.log('==========================================');
 		this.log('');
@@ -118,10 +88,10 @@ export class RemoteDiagnosticsService {
 		return {
 			proxyReachable,
 			proxyActive,
-			proxyFunctional: httpOk || socks5Ok,
+			proxyFunctional,
 			lsProcess,
-			httpOk,
-			socks5Ok,
+			httpOk: false, // Not tested at startup; use "Run Diagnostics" for full protocol tests
+			socks5Ok: false,
 		};
 	}
 

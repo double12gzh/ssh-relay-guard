@@ -203,9 +203,36 @@ export class RemoteModeController implements IModeController {
 		);
 		this.stateManager.updateState({ languageServerConfigured: success });
 
-		const isNewConfig =
-			output.includes('Setup complete') ||
-			(output.includes('configured') && !output.includes('Already configured'));
+		// Parse structured JSON result from setup script (SRG_RESULT:{...})
+		// Falls back to legacy string matching for older script versions.
+		let isNewConfig = false;
+		let isAlreadyConfigured = false;
+
+		const jsonMatch = output.match(/^SRG_RESULT:(\{.*\})$/m);
+		if (jsonMatch) {
+			try {
+				const result = JSON.parse(jsonMatch[1]) as {
+					status: string;
+					configured: number;
+					skipped: number;
+				};
+				isNewConfig = result.status === 'new_config' && result.configured > 0;
+				isAlreadyConfigured = result.status === 'already_configured';
+				this.log(
+					`Setup JSON result: status=${result.status}, configured=${result.configured}, skipped=${result.skipped}`,
+				);
+			} catch {
+				this.log('Setup: Failed to parse JSON result, falling back to string matching');
+			}
+		}
+
+		// Legacy fallback: parse human-readable output strings
+		if (!jsonMatch) {
+			isNewConfig =
+				output.includes('Setup complete') ||
+				(output.includes('configured') && !output.includes('Already configured'));
+			isAlreadyConfigured = output.includes('Already configured');
+		}
 
 		if (isNewConfig) {
 			this.log('Setup: New configuration applied');
@@ -222,7 +249,7 @@ export class RemoteModeController implements IModeController {
 				);
 			}
 			return true;
-		} else if (output.includes('Already configured')) {
+		} else if (isAlreadyConfigured) {
 			this.log('Setup: Already configured');
 			const lsProcess = await getMonitoredProcess();
 			const lsActuallyUsingProxy = lsProcess?.isUsingProxy ?? false;

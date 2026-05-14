@@ -82,8 +82,9 @@ suite('DashboardManager', () => {
 				activeTunnelsCount: 0,
 				localProxyReachable: true,
 			});
-			dashboard['updateStatusBar']();
-			const tooltip = dashboard['statusBarItem'].tooltip;
+			const sbc = dashboard['statusBarController'] as any;
+			sbc.update();
+			const tooltip = sbc['statusBarItem'].tooltip;
 			assert.strictEqual(
 				tooltip,
 				'SSH Relay Guard (SRG)\n⚠️ SSH configured, but tunnel is not running',
@@ -96,8 +97,9 @@ suite('DashboardManager', () => {
 				activeTunnelsCount: 1,
 				localProxyReachable: true,
 			});
-			dashboard['updateStatusBar']();
-			const tooltip = dashboard['statusBarItem'].tooltip;
+			const sbc = dashboard['statusBarController'] as any;
+			sbc.update();
+			const tooltip = sbc['statusBarItem'].tooltip;
 			assert.strictEqual(tooltip, 'SSH Relay Guard (SRG)\n✅ Connected');
 		});
 	});

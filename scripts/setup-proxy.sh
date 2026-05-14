@@ -156,11 +156,29 @@ check_needs_update() {
     
     # Check 1: Not a wrapper script (original binary) → needs wrapper creation
     if ! is_srg_wrapper "$target"; then
-        echo "new_install"
+        # Check 1b: Was it previously a wrapper? (checksum sidecar exists but binary changed)
+        # This detects IDE updates that replaced the wrapper with a fresh ELF binary.
+        if [ -f "${target}.srg-checksum" ]; then
+            echo "overwritten_by_ide"
+        else
+            echo "new_install"
+        fi
         return 0
     fi
     
-    # Check 2: Version mismatch → needs update (covers upgrade, downgrade, legacy)
+    # Check 2: Checksum mismatch → wrapper was tampered with
+    if [ -f "${target}.srg-checksum" ]; then
+        local saved_checksum
+        saved_checksum=$(cat "${target}.srg-checksum" 2>/dev/null || echo "")
+        local current_checksum
+        current_checksum=$(md5sum "$target" 2>/dev/null | awk '{print $1}' || echo "")
+        if [ -n "$saved_checksum" ] && [ -n "$current_checksum" ] && [ "$saved_checksum" != "$current_checksum" ]; then
+            echo "checksum_mismatch"
+            return 0
+        fi
+    fi
+
+    # Check 3: Version mismatch → needs update (covers upgrade, downgrade, legacy)
     local wrapper_version=$(get_wrapper_version "$target")
     if [ "$EXTENSION_VERSION" != "$wrapper_version" ]; then
         echo "version:$wrapper_version->$EXTENSION_VERSION"
@@ -207,11 +225,36 @@ echo ""
 while IFS= read -r TARGET; do
     [ -z "$TARGET" ] && continue
     
-    # Multi-window safety: use flock to prevent concurrent writes to the same wrapper
+    # Multi-window safety: use flock to prevent concurrent writes to the same wrapper.
+    # Falls back to mkdir-based atomic lock if flock is unavailable (POSIX mkdir is atomic).
     LOCK_FILE="${TARGET}.srg.lock"
-    exec 9>"$LOCK_FILE"
+    LOCK_DIR="${TARGET}.srg.lockdir"
+    _SRG_USED_FLOCK=0
     if command -v flock >/dev/null 2>&1; then
+        exec 9>"$LOCK_FILE"
         flock -w 10 9 || { warn_log "Could not acquire lock for $TARGET, skipping"; continue; }
+        _SRG_USED_FLOCK=1
+    else
+        # mkdir is atomic on all POSIX systems — use as lock primitive
+        _lock_attempts=0
+        while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+            _lock_attempts=$((_lock_attempts + 1))
+            if [ $_lock_attempts -ge 100 ]; then
+                # Stale lock detection: if lockdir is older than 60s, force remove
+                if [ -d "$LOCK_DIR" ]; then
+                    _lock_age=$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))
+                    if [ "$_lock_age" -gt 60 ]; then
+                        warn_log "Removing stale lock for $TARGET (${_lock_age}s old)"
+                        rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
+                        continue
+                    fi
+                fi
+                warn_log "Could not acquire mkdir lock for $TARGET after 10s, skipping"
+                continue 2
+            fi
+            sleep 0.1
+        done
+        debug_log "Acquired mkdir lock for $TARGET"
     fi
 
     echo "----------------------------------------"
@@ -268,14 +311,26 @@ __INJECT_LS_WRAPPER__
     fi
 
     chmod +x "$TARGET"
+
+    # Write checksum sidecar for IDE overwrite detection.
+    # If the IDE updates and replaces the wrapper with a fresh ELF binary,
+    # the checksum won't match and the LS wrapper's self-check will trigger
+    # a re-setup on next activation.
+    CHECKSUM_FILE="${TARGET}.srg-checksum"
+    md5sum "$TARGET" 2>/dev/null | awk '{print $1}' > "$CHECKSUM_FILE" || true
+
     info_log "Wrapper created successfully"
     info_log "  Version: $EXTENSION_VERSION"
     info_log "  Proxy: $PROXY_ADDR ($PROXY_TYPE)"
     CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
 
-    # Release lock (fd 9 auto-closes at loop end or next iteration)
-    rm -f "$LOCK_FILE"
-    exec 9>&-
+    # Release lock
+    if [ "$_SRG_USED_FLOCK" = "1" ]; then
+        rm -f "$LOCK_FILE"
+        exec 9>&-
+    else
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+    fi
 
 done <<< "$TARGETS"
 
@@ -369,5 +424,17 @@ elif [ $SKIPPED_COUNT -gt 0 ]; then
 else
     echo ""
     error_log "No language servers were configured!"
+    # Emit JSON result before exit for structured parsing
+    echo "SRG_RESULT:{\"status\":\"error\",\"configured\":0,\"skipped\":0,\"version\":\"$EXTENSION_VERSION\",\"proxy\":\"$PROXY_ADDR\"}"
     exit 1
 fi
+
+# ============================================================================
+# Machine-readable JSON summary (parsed by remoteInstaller.ts)
+# Keeps backward compatibility: human-readable output above is unchanged.
+# ============================================================================
+_SRG_STATUS="new_config"
+if [ $CONFIGURED_COUNT -eq 0 ] && [ $SKIPPED_COUNT -gt 0 ]; then
+    _SRG_STATUS="already_configured"
+fi
+echo "SRG_RESULT:{\"status\":\"$_SRG_STATUS\",\"configured\":$CONFIGURED_COUNT,\"skipped\":$SKIPPED_COUNT,\"version\":\"$EXTENSION_VERSION\",\"proxy\":\"$PROXY_ADDR\"}"

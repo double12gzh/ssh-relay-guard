@@ -1,6 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { withFileLock } from '../utils/fileLock';
 
 // ============================================================================
 // SSH Configuration Management
@@ -50,6 +51,24 @@ function buildHostBlockRegex(hostname: string): RegExp {
  * Includes ControlMaster for connection multiplexing.
  */
 export async function updateForHost(
+	hostname: string,
+	remotePort: number,
+	localPort: number,
+	enable: boolean,
+	log: (msg: string) => void,
+): Promise<void> {
+	const lockPath = path.join(getSSHDir(), `${SRG_CONFIG_FILENAME}.lock`);
+
+	await withFileLock(lockPath, async () => {
+		await updateForHostLocked(hostname, remotePort, localPort, enable, log);
+	});
+}
+
+/**
+ * Internal implementation of updateForHost, called while holding the file lock.
+ * Must NOT be called directly — use updateForHost() which acquires the lock.
+ */
+async function updateForHostLocked(
 	hostname: string,
 	remotePort: number,
 	localPort: number,
