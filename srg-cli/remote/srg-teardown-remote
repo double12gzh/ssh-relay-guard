@@ -15,7 +15,7 @@ SRG_MARKER="${1:?缺少参数: SRG_MARKER}"
 SRG_MARKER_END="${2:?缺少参数: SRG_MARKER_END}"
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
-IDE_SERVER_DIRS=(".antigravity-server")
+IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server")
 
 # 1. 清理 shell 函数定义
 for f in "$HOME/.bashrc" "$HOME/.zshrc"; do

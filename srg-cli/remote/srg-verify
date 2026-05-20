@@ -15,7 +15,7 @@ ADDR="127.0.0.1:$PORT"
 PASS=0
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
-IDE_SERVER_DIRS=(".antigravity-server")
+IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server")
 FAIL=0
 
 check() {

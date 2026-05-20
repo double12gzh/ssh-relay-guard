@@ -27,6 +27,7 @@ function isWindowsEnvironmentError(input: string): boolean {
  * append their server directory names here (e.g. '.vscode-server', '.cursor-server').
  */
 const IDE_SERVER_DIRS = [
+	'.antigravity-ide-server',
 	'.antigravity-server',
 	'.vscode-server',
 	'.cursor-server',

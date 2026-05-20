@@ -149,7 +149,7 @@ cmd_setup() {
 
     # LS wrapper 变更
     local ls_wrappers
-    ls_wrappers=$(ssh "$remote_host" "for d in .antigravity-server; do find ~/\$d/bin -name 'language_server_linux_*.bak' 2>/dev/null; done" || true)
+    ls_wrappers=$(ssh "$remote_host" "for d in .antigravity-ide-server .antigravity-server; do find ~/\$d/bin -name 'language_server_linux_*.bak' 2>/dev/null; done" || true)
     if [ -n "$ls_wrappers" ]; then
         echo ""
         echo -e "  ${BOLD}Language Server Wrapper${NC}"

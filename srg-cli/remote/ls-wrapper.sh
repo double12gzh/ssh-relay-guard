@@ -17,7 +17,7 @@ EXTENSION_BIN_PATH="__EXTENSION_BIN_PATH__"
 
 # Dynamically find mgraftcp-fakedns and libdnsredir
 find_binaries() {
-    local IDE_SERVER_DIRS=(".antigravity-server" ".vscode-server" ".cursor-server" ".windsurf-server")
+    local IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server" ".vscode-server" ".cursor-server" ".windsurf-server")
     local arch=$(uname -m)
     local binary_name=""
     local lib_name=""
