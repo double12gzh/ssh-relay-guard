@@ -30,6 +30,10 @@ suite('Remote Installer', () => {
 			const script = buildRestoreScript();
 
 			assert.ok(script.includes('.antigravity-server'), 'Should search antigravity-server');
+			assert.ok(
+				script.includes('.antigravity-ide-server'),
+				'Should search antigravity-ide-server',
+			);
 		});
 
 		test('buildRestoreScript should restore .bak files', () => {

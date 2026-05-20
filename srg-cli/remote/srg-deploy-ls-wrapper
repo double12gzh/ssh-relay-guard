@@ -13,7 +13,7 @@ set -euo pipefail
 WRAPPER_TEMPLATE="${1:?缺少参数: wrapper 模板路径}"
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
-IDE_SERVER_DIRS=(".antigravity-server")
+IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server")
 
 _find_args=()
 for _d in "${IDE_SERVER_DIRS[@]}"; do
@@ -22,7 +22,7 @@ for _d in "${IDE_SERVER_DIRS[@]}"; do
     fi
 done
 if [ ${#_find_args[@]} -eq 0 ]; then
-    _find_args+=("$HOME/.antigravity-server")
+    _find_args+=("$HOME/.antigravity-ide-server" "$HOME/.antigravity-server")
 fi
 TARGETS=$(find "${_find_args[@]}" \
     -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$" || true)
