@@ -91,7 +91,7 @@ export function buildRestoreScript(): string {
 set -e
 
 # Find all backup files and restore them in multiple IDE server directories
-BAKS=$(find "$HOME" -maxdepth 3 -type f -path "*/.antigravity-server/*" -name "language_server_linux_*.bak" -o -path "*/.vscode-server/*" -name "language_server_linux_*.bak" -o -path "*/.cursor-server/*" -name "language_server_linux_*.bak" -o -path "*/.windsurf-server/*" -name "language_server_linux_*.bak" 2>/dev/null || true)
+BAKS=$(find "$HOME" -maxdepth 3 -type f -path "*/.antigravity-ide-server/*" -name "language_server_linux_*.bak" -o -path "*/.antigravity-server/*" -name "language_server_linux_*.bak" -o -path "*/.vscode-server/*" -name "language_server_linux_*.bak" -o -path "*/.cursor-server/*" -name "language_server_linux_*.bak" -o -path "*/.windsurf-server/*" -name "language_server_linux_*.bak" 2>/dev/null || true)
 [ -z "$BAKS" ] && echo "Nothing to rollback" && exit 0
 
 RESTORED=0

@@ -25,7 +25,7 @@ EXTENSION_VERSION="${EXTENSION_VERSION:-unknown}"
 PROXY_ADDR="${PROXY_HOST}:${PROXY_PORT}"
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
-IDE_SERVER_DIRS=(".antigravity-server" ".vscode-server" ".cursor-server" ".windsurf-server")
+IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server" ".vscode-server" ".cursor-server" ".windsurf-server")
 
 # ============================================================================
 # Debug Logging
@@ -201,7 +201,7 @@ for _d in "${IDE_SERVER_DIRS[@]}"; do
 done
 # Provide fallback to check at least something, preventing find error
 if [ ${#_find_args[@]} -eq 0 ]; then
-    _find_args+=("$HOME/.antigravity-server" "$HOME/.vscode-server" "$HOME/.cursor-server" "$HOME/.windsurf-server")
+    _find_args+=("$HOME/.antigravity-ide-server" "$HOME/.antigravity-server" "$HOME/.vscode-server" "$HOME/.cursor-server" "$HOME/.windsurf-server")
 fi
 TARGETS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$")
 

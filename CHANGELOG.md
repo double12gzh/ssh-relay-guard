@@ -2,6 +2,11 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.0.7] - 2026-05-20
+
+### Added
+- **Support for New Antigravity IDE Server**: Added support for `.antigravity-ide-server` in the extension's health checks, diagnostics, deployment wrapper scripts, and srg-cli commands.
+
 ## [0.0.6] - 2026-04-27
 
 ### Added

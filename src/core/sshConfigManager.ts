@@ -57,7 +57,9 @@ export async function updateForHost(
 	enable: boolean,
 	log: (msg: string) => void,
 ): Promise<void> {
-	const lockPath = path.join(getSSHDir(), `${SRG_CONFIG_FILENAME}.lock`);
+	const sshDir = getSSHDir();
+	await fs.mkdir(sshDir, { recursive: true });
+	const lockPath = path.join(sshDir, `${SRG_CONFIG_FILENAME}.lock`);
 
 	await withFileLock(lockPath, async () => {
 		await updateForHostLocked(hostname, remotePort, localPort, enable, log);

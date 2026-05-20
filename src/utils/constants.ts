@@ -11,6 +11,7 @@
  * Each IDE stores its server runtime under `~/<dir>/`.
  */
 export const IDE_SERVER_DIRS = [
+	'.antigravity-ide-server',
 	'.antigravity-server',
 	'.vscode-server',
 	'.cursor-server',

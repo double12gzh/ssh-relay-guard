@@ -32,7 +32,7 @@ _SRG_PORT=$(_srg_detect_port)
 _SRG_ADDR="127.0.0.1:$_SRG_PORT"
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
-IDE_SERVER_DIRS=(".antigravity-server")
+IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server")
 
 echo "SRG 代理状态"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
