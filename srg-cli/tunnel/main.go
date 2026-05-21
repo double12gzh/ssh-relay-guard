@@ -67,8 +67,24 @@ func main() {
 		log.Printf("Received signal %v, shutting down...", s)
 		writeStatus(*statusFile, Status{State: "disconnected", Port: 0, Error: "Shutting down"})
 		if cmd != nil && cmd.Process != nil {
-			// Kill the ssh child process
-			cmd.Process.Kill()
+			// Graceful shutdown: SIGTERM first to let SSH close the remote session
+			// and release the forwarded port cleanly.
+			cmd.Process.Signal(syscall.SIGTERM)
+
+			// Wait up to 3 seconds for clean exit
+			done := make(chan struct{})
+			go func() {
+				cmd.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				log.Printf("SSH process exited cleanly")
+			case <-time.After(3 * time.Second):
+				log.Printf("SSH process did not exit in 3s, sending SIGKILL")
+				cmd.Process.Kill()
+			}
 		}
 		os.Exit(0)
 	}()

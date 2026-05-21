@@ -210,18 +210,26 @@ $host_marker_end
 EOF
     chmod 600 "$SSH_CONFIG_SRG"
 
-    # 1d. 确保主配置中有 Include 行（将其加入到文件末尾，以防覆盖用户自有 ControlMaster 等高优配置）
+    # 1d. 确保主配置中有 Include 行，放在文件首行。
+    #     SSH 使用 first-match-wins 语义，SRG 的 ControlMaster/ControlPath
+    #     必须优先于用户自定义的 Host * 或 Host <name> 配置块。
+    #     与 VS Code 扩展 (sshConfigManager.ts) 保持一致。
     touch "$SSH_CONFIG"
     chmod 600 "$SSH_CONFIG"
     
-    # 删除旧的 Include 行 (如果存在)，重新追加到文件最末尾
+    # 删除旧的 Include 行 (如果存在)，重新插入到文件首行
     if [[ "$(uname)" == "Darwin" ]]; then
         sed -i '' "/^${INCLUDE_LINE}$/d" "$SSH_CONFIG"
     else
         sed -i "/^${INCLUDE_LINE}$/d" "$SSH_CONFIG"
     fi
-    echo "" >> "$SSH_CONFIG"
-    echo "$INCLUDE_LINE" >> "$SSH_CONFIG"
+    # Prepend Include line to the top of the file
+    local tmp_config
+    tmp_config=$(mktemp)
+    echo "$INCLUDE_LINE" > "$tmp_config"
+    cat "$SSH_CONFIG" >> "$tmp_config"
+    mv "$tmp_config" "$SSH_CONFIG"
+    chmod 600 "$SSH_CONFIG"
 
     info "SSH 配置已写入 $SSH_CONFIG_SRG"
     dim "主配置仅添加: $INCLUDE_LINE"

@@ -130,24 +130,6 @@ get_wrapper_version() {
     grep -oP 'WRAPPER_VERSION="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
 }
 
-# Extract proxy address from a wrapper script
-get_wrapper_proxy_addr() {
-    local wrapper="$1"
-    grep -oP 'PROXY_ADDR="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
-}
-
-# Extract proxy type from a wrapper script
-get_wrapper_proxy_type() {
-    local wrapper="$1"
-    grep -oP 'PROXY_TYPE="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
-}
-
-# Extract rewrite cloudcode flag from a wrapper script
-get_wrapper_rewrite_cloudcode() {
-    local wrapper="$1"
-    grep -oP 'REWRITE_CLOUDCODE="\K[^"]+' "$wrapper" 2>/dev/null || echo "none"
-}
-
 # Check if target is ANY bash script (broad check for backup safety)
 # If the file starts with #!/bin/bash, it's NOT the original ELF binary
 # and must NOT be backed up as .bak (regardless of who created it)
@@ -165,41 +147,41 @@ is_srg_wrapper() {
 
 # Determine if wrapper needs to be updated
 # Returns: 0 = needs update (with reason in stdout), 1 = up-to-date
+#
+# Note: Proxy address/type/rewrite are NOT checked here because the wrapper
+# reads them from environment variables at runtime (multi-user isolation).
+# Only the extension version triggers a wrapper rewrite.
 check_needs_update() {
     local target="$1"
     
     # Check 1: Not a wrapper script (original binary) → needs wrapper creation
     if ! is_srg_wrapper "$target"; then
-        echo "new_install"
+        # Check 1b: Was it previously a wrapper? (checksum sidecar exists but binary changed)
+        # This detects IDE updates that replaced the wrapper with a fresh ELF binary.
+        if [ -f "${target}.srg-checksum" ]; then
+            echo "overwritten_by_ide"
+        else
+            echo "new_install"
+        fi
         return 0
     fi
     
-    # Check 2: Version mismatch → needs update (covers upgrade, downgrade, legacy)
+    # Check 2: Checksum mismatch → wrapper was tampered with
+    if [ -f "${target}.srg-checksum" ]; then
+        local saved_checksum
+        saved_checksum=$(cat "${target}.srg-checksum" 2>/dev/null || echo "")
+        local current_checksum
+        current_checksum=$(md5sum "$target" 2>/dev/null | awk '{print $1}' || echo "")
+        if [ -n "$saved_checksum" ] && [ -n "$current_checksum" ] && [ "$saved_checksum" != "$current_checksum" ]; then
+            echo "checksum_mismatch"
+            return 0
+        fi
+    fi
+
+    # Check 3: Version mismatch → needs update (covers upgrade, downgrade, legacy)
     local wrapper_version=$(get_wrapper_version "$target")
     if [ "$EXTENSION_VERSION" != "$wrapper_version" ]; then
         echo "version:$wrapper_version->$EXTENSION_VERSION"
-        return 0
-    fi
-    
-    # Check 3: Proxy address mismatch → needs update
-    local wrapper_proxy_addr=$(get_wrapper_proxy_addr "$target")
-    if [ "$PROXY_ADDR" != "$wrapper_proxy_addr" ]; then
-        echo "proxy_addr:$wrapper_proxy_addr->$PROXY_ADDR"
-        return 0
-    fi
-    
-    # Check 4: Proxy type mismatch → needs update
-    local wrapper_proxy_type=$(get_wrapper_proxy_type "$target")
-    if [ "$PROXY_TYPE" != "$wrapper_proxy_type" ]; then
-        echo "proxy_type:$wrapper_proxy_type->$PROXY_TYPE"
-        return 0
-    fi
-    
-    # Check 5: Rewrite CloudCode mismatch → needs update
-    local wrapper_rewrite_cloudcode=$(get_wrapper_rewrite_cloudcode "$target")
-    # Using REWRITE_CLOUDCODE string directly since we added sed substitution for it
-    if [ "$REWRITE_CLOUDCODE" != "$wrapper_rewrite_cloudcode" ]; then
-        echo "rewrite_cloudcode:$wrapper_rewrite_cloudcode->$REWRITE_CLOUDCODE"
         return 0
     fi
     
@@ -243,6 +225,38 @@ echo ""
 while IFS= read -r TARGET; do
     [ -z "$TARGET" ] && continue
     
+    # Multi-window safety: use flock to prevent concurrent writes to the same wrapper.
+    # Falls back to mkdir-based atomic lock if flock is unavailable (POSIX mkdir is atomic).
+    LOCK_FILE="${TARGET}.srg.lock"
+    LOCK_DIR="${TARGET}.srg.lockdir"
+    _SRG_USED_FLOCK=0
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"$LOCK_FILE"
+        flock -w 10 9 || { warn_log "Could not acquire lock for $TARGET, skipping"; continue; }
+        _SRG_USED_FLOCK=1
+    else
+        # mkdir is atomic on all POSIX systems — use as lock primitive
+        _lock_attempts=0
+        while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+            _lock_attempts=$((_lock_attempts + 1))
+            if [ $_lock_attempts -ge 100 ]; then
+                # Stale lock detection: if lockdir is older than 60s, force remove
+                if [ -d "$LOCK_DIR" ]; then
+                    _lock_age=$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))
+                    if [ "$_lock_age" -gt 60 ]; then
+                        warn_log "Removing stale lock for $TARGET (${_lock_age}s old)"
+                        rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
+                        continue
+                    fi
+                fi
+                warn_log "Could not acquire mkdir lock for $TARGET after 10s, skipping"
+                continue 2
+            fi
+            sleep 0.1
+        done
+        debug_log "Acquired mkdir lock for $TARGET"
+    fi
+
     echo "----------------------------------------"
     echo "Target: $TARGET"
     BAK="${TARGET}.bak"
@@ -253,15 +267,11 @@ while IFS= read -r TARGET; do
         
         # Log current wrapper state for debugging
         if is_srg_wrapper "$TARGET"; then
-            debug_log "Current wrapper state:"
-            debug_log "  Version: $(get_wrapper_version "$TARGET")"
-            debug_log "  Proxy: $(get_wrapper_proxy_addr "$TARGET")"
-            debug_log "  Type: $(get_wrapper_proxy_type "$TARGET")"
-            debug_log "  Rewrite: $(get_wrapper_rewrite_cloudcode "$TARGET")"
+            debug_log "Current wrapper version: $(get_wrapper_version "$TARGET")"
         fi
     else
         # Already up-to-date
-        info_log "Already up-to-date (v$EXTENSION_VERSION, $PROXY_ADDR, $PROXY_TYPE, Rewrite:$REWRITE_CLOUDCODE)"
+        info_log "Already up-to-date (v$EXTENSION_VERSION)"
         SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
         continue
     fi
@@ -288,10 +298,8 @@ while IFS= read -r TARGET; do
 __INJECT_LS_WRAPPER__
 
     # Replace placeholders with actual values
-    sed -i "s|__PROXY_ADDR_PLACEHOLDER__|$PROXY_ADDR|g" "$TARGET"
-    sed -i "s|__PROXY_TYPE_PLACEHOLDER__|$PROXY_TYPE|g" "$TARGET"
+    # Note: proxy addr/type/rewrite are NOT baked in — read from env at runtime
     sed -i "s|__EXTENSION_VERSION_PLACEHOLDER__|$EXTENSION_VERSION|g" "$TARGET"
-    sed -i "s|__REWRITE_CLOUDCODE_PLACEHOLDER__|$REWRITE_CLOUDCODE|g" "$TARGET"
     sed -i "s|__TIMESTAMP_PLACEHOLDER__|$(date -Iseconds)|g" "$TARGET"
     
     # Set extension bin path if provided
@@ -303,10 +311,26 @@ __INJECT_LS_WRAPPER__
     fi
 
     chmod +x "$TARGET"
+
+    # Write checksum sidecar for IDE overwrite detection.
+    # If the IDE updates and replaces the wrapper with a fresh ELF binary,
+    # the checksum won't match and the LS wrapper's self-check will trigger
+    # a re-setup on next activation.
+    CHECKSUM_FILE="${TARGET}.srg-checksum"
+    md5sum "$TARGET" 2>/dev/null | awk '{print $1}' > "$CHECKSUM_FILE" || true
+
     info_log "Wrapper created successfully"
     info_log "  Version: $EXTENSION_VERSION"
     info_log "  Proxy: $PROXY_ADDR ($PROXY_TYPE)"
     CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
+
+    # Release lock
+    if [ "$_SRG_USED_FLOCK" = "1" ]; then
+        rm -f "$LOCK_FILE"
+        exec 9>&-
+    else
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+    fi
 
 done <<< "$TARGETS"
 
@@ -400,5 +424,17 @@ elif [ $SKIPPED_COUNT -gt 0 ]; then
 else
     echo ""
     error_log "No language servers were configured!"
+    # Emit JSON result before exit for structured parsing
+    echo "SRG_RESULT:{\"status\":\"error\",\"configured\":0,\"skipped\":0,\"version\":\"$EXTENSION_VERSION\",\"proxy\":\"$PROXY_ADDR\"}"
     exit 1
 fi
+
+# ============================================================================
+# Machine-readable JSON summary (parsed by remoteInstaller.ts)
+# Keeps backward compatibility: human-readable output above is unchanged.
+# ============================================================================
+_SRG_STATUS="new_config"
+if [ $CONFIGURED_COUNT -eq 0 ] && [ $SKIPPED_COUNT -gt 0 ]; then
+    _SRG_STATUS="already_configured"
+fi
+echo "SRG_RESULT:{\"status\":\"$_SRG_STATUS\",\"configured\":$CONFIGURED_COUNT,\"skipped\":$SKIPPED_COUNT,\"version\":\"$EXTENSION_VERSION\",\"proxy\":\"$PROXY_ADDR\"}"

@@ -63,7 +63,7 @@ suite('Remote Installer', () => {
 				} else if (filePath.endsWith('srg-on')) {
 					return 'SRG_ON_CONTENT __SRG_PORT__ __SRG_TYPE__';
 				} else if (filePath.endsWith('ls-wrapper.sh')) {
-					return '#!/bin/bash\nWRAPPER_CONTENT __SRG_ADDR__';
+					return '#!/bin/bash\nWRAPPER_CONTENT PROXY_ADDR="${SRG_PROXY_ADDR:-}"';
 				}
 				// Default content for other srg scripts
 				return 'GENERIC_SCRIPT';
@@ -80,9 +80,36 @@ suite('Remote Installer', () => {
 			assert.ok(script.includes('SRG_ON_CONTENT'), 'Should inject srg-on');
 			assert.ok(script.includes('__SRG_PORT_PH__'), 'Should transform srg-on placeholder');
 			assert.ok(script.includes('WRAPPER_CONTENT'), 'Should inject ls-wrapper');
+			// Wrapper no longer contains __SRG_ADDR__ (multi-user isolation: env-var only)
 			assert.ok(
-				script.includes('__PROXY_ADDR_PLACEHOLDER__'),
-				'Should transform ls-wrapper placeholder',
+				!script.includes('__PROXY_ADDR_PLACEHOLDER__'),
+				'Should NOT have hardcoded proxy addr placeholder',
+			);
+		});
+
+		test('should include port auto-detection function in srg-on', async () => {
+			// Use real file system to read actual srg-on content
+			(customReadFileForTesting as any) = async (filePathPath: any, _encoding: any) => {
+				const filePath = filePathPath as string;
+				if (filePath.endsWith('setup-proxy.sh')) {
+					return '__INJECT_SRG_ON__\n__INJECT_LS_WRAPPER__';
+				} else if (filePath.endsWith('ls-wrapper.sh')) {
+					return '#!/bin/bash\nWRAPPER';
+				}
+				// Read actual CLI tool files
+				return fs.readFile(filePath, 'utf-8');
+			};
+
+			const extensionPath = path.resolve(__dirname, '../..');
+			const script = await buildInstallScript('127.0.0.1', 7890, false, extensionPath);
+
+			assert.ok(
+				script.includes('_srg_detect_port'),
+				'Generated script should contain _srg_detect_port function',
+			);
+			assert.ok(
+				script.includes('curl --connect-timeout'),
+				'Port detection should use curl proxy handshake',
 			);
 		});
 

@@ -163,22 +163,9 @@ export class ConnectionMonitor {
 
 		this.stats.proxyReachable = isReachable;
 
-		// Notify user if tunnel transitions from working to disconnected
-		if (this.wasReachable === true && !isReachable) {
-			vscode.window
-				.showWarningMessage(
-					`⚠️ 代理隧道断开！无法连接到 ${remoteProxyHost}:${remoteProxyPort}`,
-					'打开控制面板',
-					'运行健康检查',
-				)
-				.then((action) => {
-					if (action === '打开控制面板') {
-						vscode.commands.executeCommand('ssh-relay-guard.showStatusPanel');
-					} else if (action === '运行健康检查') {
-						vscode.commands.executeCommand('ssh-relay-guard.diagnose');
-					}
-				});
-		}
+		// Track reachability transitions for stats.
+		// Disconnect notifications are handled by DashboardManager.refreshStatus()
+		// which has proper i18n support — do NOT duplicate here.
 		this.wasReachable = isReachable;
 
 		// Get active connections using ss command

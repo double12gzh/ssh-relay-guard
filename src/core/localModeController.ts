@@ -382,24 +382,18 @@ export class LocalModeController implements IModeController {
 					);
 				}
 
-				// ALWAYS update global remoteProxyPort setting so the remote extension
-				// picks up the negotiated port for http.proxy and LS wrapper.
-				// This is critical in multi-window scenarios: even if negotiatedPort === remotePort
-				// (the port in ~/.ssh/config), the global VS Code setting might have been
-				// changed by another host's window! We must claim it back.
-				try {
-					const config = vscode.workspace.getConfiguration('ssh-relay-guard');
-					if (config.get('remoteProxyPort') !== negotiatedPort) {
-						await config.update(
-							'remoteProxyPort',
-							negotiatedPort,
-							vscode.ConfigurationTarget.Global,
-						);
-						this.log(`Synced global remoteProxyPort to ${negotiatedPort}`);
-					}
-				} catch (e) {
-					this.log(`Failed to sync remoteProxyPort to workspace settings: ${e}`);
-				}
+				// ── Multi-user isolation ──────────────────────────────────────
+				// Previously, we synced negotiatedPort to the global VS Code
+				// setting `remoteProxyPort`. This caused conflicts when multiple
+				// users shared the same Linux account: one user's negotiated port
+				// would overwrite another's setting.
+				//
+				// The remote extension now reads the proxy port from process.env
+				// (SRG_PROXY_ADDR / SRG_PROXY_PORT), which is per-process and
+				// cannot conflict. The per-host port is already persisted in
+				// SSH config (SRG_REMOTE_PORT=XXXX) for reconnection.
+				this.log(`Tunnel port for ${hostname}: ${negotiatedPort} (stored in SSH config)`);
+
 				this.dashboardManager.setLocalReconnectionState(false);
 				await this.dashboardManager.refreshStatus();
 			},

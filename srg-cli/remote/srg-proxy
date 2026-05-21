@@ -8,8 +8,32 @@
 # 通过 LD_PRELOAD + FakeDNS 实现进程级透明代理。
 # ============================================================================
 
-_SRG_PORT="__SRG_PORT__"
-_SRG_TYPE="__SRG_TYPE__"
+# ── Port auto-detection ─────────────────────────────────────────────
+_srg_detect_port() {
+    local base_port="__SRG_PORT__"
+    if [ -n "${SRG_PROXY_PORT:-}" ]; then
+        echo "$SRG_PROXY_PORT"
+        return 0
+    fi
+    if curl --connect-timeout 1 -x "http://127.0.0.1:$base_port" http://localhost -so /dev/null 2>/dev/null; then
+        echo "$base_port"
+        return 0
+    fi
+    for offset in $(seq 1 10); do
+        local test_port=$((base_port + offset))
+        if curl --connect-timeout 1 -x "http://127.0.0.1:$test_port" http://localhost -so /dev/null 2>/dev/null; then
+            echo "⚠ 端口自动探测: 使用 $test_port (配置端口 $base_port 不可达)" >&2
+            echo "$test_port"
+            return 0
+        fi
+    done
+    echo "⚠ 代理端口 $base_port-$((base_port + 10)) 均不可达，SSH 隧道可能未建立" >&2
+    echo "$base_port"
+    return 1
+}
+
+_SRG_PORT=$(_srg_detect_port)
+_SRG_TYPE="${SRG_PROXY_TYPE:-__SRG_TYPE__}"
 _SRG_ADDR="127.0.0.1:$_SRG_PORT"
 
 MGRAFTCP="$HOME/bin/mgraftcp-fakedns"
@@ -34,3 +58,4 @@ if [ "$_SRG_TYPE" = "socks5" ]; then
 else
     exec "$MGRAFTCP" --http_proxy "$_SRG_ADDR" "$@"
 fi
+

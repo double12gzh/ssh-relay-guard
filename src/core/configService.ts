@@ -27,7 +27,7 @@ export class ConfigService implements vscode.Disposable {
 		this._enableLocalForwarding = true;
 		this._showStatusOnStartup = true;
 		this._rewriteCloudCodeEndpoint = false;
-		this._setGlobalHttpProxy = true;
+		this._setGlobalHttpProxy = false;
 		this.reload();
 
 		this.disposable = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -49,7 +49,7 @@ export class ConfigService implements vscode.Disposable {
 		this._enableLocalForwarding = cfg.get<boolean>('enableLocalForwarding', true);
 		this._showStatusOnStartup = cfg.get<boolean>('showStatusOnStartup', true);
 		this._rewriteCloudCodeEndpoint = cfg.get<boolean>('rewriteCloudCodeEndpoint', false);
-		this._setGlobalHttpProxy = cfg.get<boolean>('setGlobalHttpProxy', true);
+		this._setGlobalHttpProxy = cfg.get<boolean>('setGlobalHttpProxy', false);
 	}
 
 	get localProxyPort(): number {

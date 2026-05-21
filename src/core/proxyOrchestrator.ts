@@ -7,6 +7,7 @@ import { LocalModeController } from './localModeController';
 import { RemoteModeController } from './remoteModeController';
 import { CommandRegistry } from './commands/commandRegistry';
 import { isRunningLocally } from '../utils/portProbe';
+import * as crypto from 'crypto';
 
 /**
  * ProxyOrchestrator — Thin coordinator for all SRG functionality.
@@ -23,6 +24,8 @@ export class ProxyOrchestrator implements vscode.Disposable {
 	private tunnelManager: TunnelManager;
 	private commandRegistry: CommandRegistry;
 	private isLocal: boolean;
+	/** Short session ID for multi-user log disambiguation */
+	private sessionId: string;
 
 	constructor(
 		private context: vscode.ExtensionContext,
@@ -30,6 +33,14 @@ export class ProxyOrchestrator implements vscode.Disposable {
 	) {
 		this.outputChannel = outputChannel;
 		this.isLocal = isRunningLocally();
+		// Generate a short, stable session ID from the local machine's identity.
+		// This helps distinguish logs when multiple users share the same remote
+		// account and Output Channel.
+		this.sessionId = crypto
+			.createHash('sha256')
+			.update(vscode.env.machineId)
+			.digest('hex')
+			.substring(0, 6);
 		this.configService = new ConfigService();
 		this.stateManager = new StateManager();
 		this.dashboardManager = new DashboardManager(
@@ -102,7 +113,7 @@ export class ProxyOrchestrator implements vscode.Disposable {
 	private log(message: string): void {
 		const timestamp = new Date().toISOString();
 		const location = this.isLocal ? '[LOCAL]' : '[REMOTE]';
-		this.outputChannel?.appendLine(`${timestamp} ${location} ${message}`);
+		this.outputChannel?.appendLine(`${timestamp} ${location} [${this.sessionId}] ${message}`);
 	}
 
 	// ── Common Commands ────────────────────────────────────────────────

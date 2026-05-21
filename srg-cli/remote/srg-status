@@ -3,7 +3,32 @@
 # srg-status — 查看当前代理状态
 # ============================================================================
 
-_SRG_PORT="__SRG_PORT__"
+# ── Port auto-detection ─────────────────────────────────────────────
+_SRG_PORT_SOURCE="configured"
+_srg_detect_port() {
+    local base_port="__SRG_PORT__"
+    if [ -n "${SRG_PROXY_PORT:-}" ]; then
+        _SRG_PORT_SOURCE="env"
+        echo "$SRG_PROXY_PORT"
+        return 0
+    fi
+    if curl --connect-timeout 1 -x "http://127.0.0.1:$base_port" http://localhost -so /dev/null 2>/dev/null; then
+        echo "$base_port"
+        return 0
+    fi
+    for offset in $(seq 1 10); do
+        local test_port=$((base_port + offset))
+        if curl --connect-timeout 1 -x "http://127.0.0.1:$test_port" http://localhost -so /dev/null 2>/dev/null; then
+            _SRG_PORT_SOURCE="auto-detected"
+            echo "$test_port"
+            return 0
+        fi
+    done
+    echo "$base_port"
+    return 1
+}
+
+_SRG_PORT=$(_srg_detect_port)
 _SRG_ADDR="127.0.0.1:$_SRG_PORT"
 
 # Supported IDE server directories (add more to support other IDEs, e.g. .vscode-server)
@@ -11,6 +36,9 @@ IDE_SERVER_DIRS=(".antigravity-ide-server" ".antigravity-server")
 
 echo "SRG 代理状态"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# 0. 端口来源
+echo -e "  ℹ 代理端口: $_SRG_PORT ($_SRG_PORT_SOURCE)"
 
 # 1. 当前 shell 代理
 if [ -n "${HTTP_PROXY:-}" ]; then
@@ -97,3 +125,4 @@ else
 fi
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
