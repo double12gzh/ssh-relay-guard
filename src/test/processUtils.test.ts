@@ -69,6 +69,20 @@ suite('processUtils Tests', () => {
 		assert.strictEqual(proc?.isUsingProxy, true);
 	});
 
+	test('getMonitoredProcess should detect isUsingProxy when .bak is in command', async () => {
+		const psOutput =
+			'user 12345 0.0 0.1 2000 1000 ? S 12:00 0:00 /root/.antigravity-ide-server/bin/language_server_linux_x64.bak --some-args\n';
+		(customExecAsyncForTesting as any) = async () => {
+			return { stdout: psOutput, stderr: '' };
+		};
+
+		const proc = await getMonitoredProcess();
+
+		assert.ok(proc);
+		assert.strictEqual(proc?.pid, 12345);
+		assert.strictEqual(proc?.isUsingProxy, true);
+	});
+
 	test('getMonitoredProcess should return null when ps fails', async () => {
 		(customExecAsyncForTesting as any) = async () => {
 			throw new Error('ps failed');

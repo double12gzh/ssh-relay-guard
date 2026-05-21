@@ -185,7 +185,9 @@ async function getMonitoredProcessUncached(): Promise<{
 			.split('\n')
 			.filter((l) => l.length > 0);
 
-		const hasMgraftcpWrapper = lines.some((line) => line.includes('mgraftcp'));
+		const hasMgraftcpWrapper = lines.some(
+			(line) => line.includes('mgraftcp') || line.includes('.bak'),
+		);
 
 		// Parse all candidate LS processes
 		const candidates: LSCandidate[] = [];

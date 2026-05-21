@@ -2,6 +2,12 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.0.8] - 2026-05-21
+
+### Fixed
+- **Proxy Detection under pgrep**: Fixed a critical bug where `getMonitoredProcess` would fail to recognize that the Language Server was using the proxy wrapper because `pgrep` returned output without the word `mgraftcp` (only showing the `.bak` binary). This led to the extension repeatedly killing the Language Server in a loop via SIGTERM (Signal 15). Resolves the "Language server exited before sending start data" issue during startup.
+- **Global Proxy Default**: Disabled writing `http.proxy` into `settings.json` by default to avoid multi-user conflicts, relying strictly on robust process-level environment variable injection.
+
 ## [0.0.7] - 2026-05-20
 
 ### Added
