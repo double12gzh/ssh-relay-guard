@@ -66,11 +66,14 @@ export class RemoteSetupService {
 		// Set process-level env vars so ALL child processes in this
 		// VS Code Server instance use the correct proxy. These are
 		// per-process and do not conflict with other users' servers.
+		const noProxyList = 'localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 		process.env.HTTP_PROXY = proxyUrl;
 		process.env.HTTPS_PROXY = proxyUrl;
 		process.env.http_proxy = proxyUrl;
 		process.env.https_proxy = proxyUrl;
-		this.log(`Set process.env HTTP(S)_PROXY = ${proxyUrl}`);
+		process.env.NO_PROXY = noProxyList;
+		process.env.no_proxy = noProxyList;
+		this.log(`Set process.env HTTP(S)_PROXY = ${proxyUrl}, NO_PROXY = ${noProxyList}`);
 
 		const httpConfig = vscode.workspace.getConfiguration('http');
 		const currentProxy = httpConfig.get<string>('proxy', '');

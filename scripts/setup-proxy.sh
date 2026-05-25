@@ -190,6 +190,29 @@ check_needs_update() {
 }
 
 # ============================================================================
+# Cleanup orphaned files from prior buggy find patterns
+# ============================================================================
+# Previous versions used `find -name "language_server_linux_*"` which also
+# matched .srg.lock, .srg-checksum etc., creating cascading junk files.
+# Clean them up before proceeding.
+for _d in "${IDE_SERVER_DIRS[@]}"; do
+    if [ -d "$HOME/$_d" ]; then
+        # Remove lock/checksum files that were wrongly treated as LS targets
+        find "$HOME/$_d" -type f -name "language_server_linux_*" \
+            \( -name "*.srg.lock*" -o -name "*.srg-checksum*" -o -name "*.srg.lockdir*" \) \
+            2>/dev/null | while read -r junk; do
+            debug_log "Cleaning orphaned file: $junk"
+            rm -f "$junk"
+        done
+        # Remove .bak files of junk targets (e.g. language_server_linux_x64.srg.lock.bak)
+        find "$HOME/$_d" -type f -name "language_server_linux_*.srg.lock*.bak" 2>/dev/null \
+            -exec rm -f {} \;
+        find "$HOME/$_d" -type f -name "language_server_linux_*.srg-checksum*.bak" 2>/dev/null \
+            -exec rm -f {} \;
+    fi
+done
+
+# ============================================================================
 # Find Language Servers
 # ============================================================================
 echo "[SEARCH] Looking for language servers..."
@@ -203,13 +226,16 @@ done
 if [ ${#_find_args[@]} -eq 0 ]; then
     _find_args+=("$HOME/.antigravity-ide-server" "$HOME/.antigravity-server" "$HOME/.vscode-server" "$HOME/.cursor-server" "$HOME/.windsurf-server")
 fi
-TARGETS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*" 2>/dev/null | grep -v "\.bak$")
+# Use strict regex: only match actual LS binaries (e.g. language_server_linux_x64)
+# Excludes .bak, .srg.lock, .srg-checksum, .srg.lockdir and any other extensions
+TARGETS=$(find "${_find_args[@]}" -type f -name "language_server_linux_*" 2>/dev/null \
+    | grep -E '/language_server_linux_[a-z0-9_]+$')
 
 if [ -z "$TARGETS" ]; then
     error_log "No language servers found! Will continue to deploy tools."
 fi
 
-TARGET_COUNT=$(echo "$TARGETS" | wc -l)
+TARGET_COUNT=$(echo "$TARGETS" | grep -c . || echo 0)
 info_log "Found $TARGET_COUNT language server(s)"
 echo ""
 
