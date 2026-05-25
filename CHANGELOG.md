@@ -2,6 +2,18 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.0.9] - 2026-05-24
+
+### Added
+
+- **Enhanced Remote Debug Logging**: Added detailed logging to the remote LS wrapper script (`/tmp/srg-ls-wrapper-*.log`) to aid in diagnosing remote startup failures.
+- **Wrapper Logging Commands**: Added `Show Logs`, `Show Wrapper Path`, and `Show Remote Config` commands to the Command Palette for easier remote debugging.
+
+### Fixed
+
+- **No Proxy Environment Injection**: Added explicit `unset HTTP_PROXY HTTPS_PROXY` and `export NO_PROXY="localhost,..."` at the start of the remote wrapper script. This prevents double-proxying loops and ensures the Language Server doesn't try to connect through a proxy when `mgraftcp` is already intercepting syscalls.
+- **Wrapper Path Discovery**: Added robust detection for the VS Code Server's extension directory path (`$HOME/.antigravity-ide-server/...`) to ensure `mgraftcp-fakedns` is found even when the extension path is not explicitly provided.
+
 ## [0.0.8] - 2026-05-21
 
 ### Fixed

@@ -357,10 +357,15 @@ export class RemoteModeController implements IModeController {
 		proxyType: string,
 		rewriteCloudCode: boolean,
 	): void {
+		const noProxyList = 'localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 		process.env.SRG_PROXY_ADDR = `${host}:${port}`;
 		process.env.SRG_PROXY_TYPE = proxyType;
 		process.env.SRG_PROXY_PORT = String(port);
 		process.env.SRG_REWRITE_CLOUDCODE = rewriteCloudCode ? 'true' : 'false';
-		this.log(`Injected process.env: SRG_PROXY_ADDR=${host}:${port}, type=${proxyType}`);
+		process.env.NO_PROXY = noProxyList;
+		process.env.no_proxy = noProxyList;
+		this.log(
+			`Injected process.env: SRG_PROXY_ADDR=${host}:${port}, type=${proxyType}, NO_PROXY=${noProxyList}`,
+		);
 	}
 }
