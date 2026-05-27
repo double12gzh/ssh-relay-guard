@@ -93,10 +93,15 @@ func main() {
 
 	currentRemotePort := *remotePort
 	maxPort := *remotePort + *maxRetries
+	hasConnectedOnce := false
 
 	for {
+		connState := "connecting"
+		if hasConnectedOnce {
+			connState = "reconnecting"
+		}
 		log.Printf("Attempting SSH connection. RemoteForward: %d:127.0.0.1:%d", currentRemotePort, *localPort)
-		writeStatus(*statusFile, Status{State: "connecting", Port: currentRemotePort})
+		writeStatus(*statusFile, Status{State: connState, Port: currentRemotePort})
 
 		args := []string{
 			"-N",
@@ -129,8 +134,12 @@ func main() {
 		var portForwardFailure bool
 		var pffMu sync.Mutex
 
+		// Channel to signal stderr goroutine completion
+		stderrDone := make(chan struct{})
+
 		// Read stderr line by line
 		go func() {
+			defer close(stderrDone)
 			scanner := bufio.NewScanner(stderr)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -159,6 +168,14 @@ func main() {
 		case err := <-exitChan:
 			successTimer.Stop()
 			log.Printf("SSH process exited prematurely: %v", err)
+
+			// Wait for stderr goroutine to finish draining so we don't miss
+			// "port forwarding failed" in the last line of output.
+			select {
+			case <-stderrDone:
+			case <-time.After(500 * time.Millisecond):
+				log.Printf("Warning: stderr goroutine did not finish within 500ms")
+			}
 			
 			// Try to determine if it's a port binding issue. Exit code 255 typically indicates this
 			// when ExitOnForwardFailure=yes is set.
@@ -195,6 +212,7 @@ func main() {
 
 		case <-successTimer.C:
 			log.Printf("SSH tunnel successfully established on port %d!", currentRemotePort)
+			hasConnectedOnce = true
 			writeStatus(*statusFile, Status{State: "connected", Port: currentRemotePort})
 
 			// Now wait indefinitely until the connection drops

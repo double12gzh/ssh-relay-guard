@@ -71,7 +71,7 @@ export class RemoteModeController implements IModeController {
 			return configuredPort;
 		}
 
-		// 3. Probe nearby ports in parallel (Go daemon uses max 10 retries)
+		// 3. Probe nearby ports — race to first success (Go daemon uses max 10 retries)
 		const MAX_OFFSET = 10;
 		const probes = Array.from({ length: MAX_OFFSET }, (_, i) => {
 			const port = configuredPort + i + 1;
@@ -80,8 +80,19 @@ export class RemoteModeController implements IModeController {
 			);
 		});
 
-		const results = await Promise.all(probes);
-		const detectedPort = results.find((p): p is number => p !== null);
+		// Race all probes: resolve as soon as ANY port succeeds.
+		// The sentinel timeout resolves to null after all probes would have timed out,
+		// ensuring we don't hang forever if nothing responds.
+		const sentinel = new Promise<null>((r) => setTimeout(() => r(null), timeout + 500));
+		const raceProbes = probes.map((p) =>
+			p.then((port) => {
+				if (port !== null) return port;
+				// Unsuccessful probes should never win the race
+				return new Promise<never>(() => {});
+			}),
+		);
+
+		const detectedPort = await Promise.race([...raceProbes, sentinel]);
 
 		if (detectedPort) {
 			this.log(

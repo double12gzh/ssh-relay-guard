@@ -107,9 +107,31 @@ export class LocalModeController implements IModeController {
 
 		// Start tunnel health monitor — periodically checks ControlMaster sockets
 		// and automatically reconnects any dead tunnels (via autossh or plain ssh).
-		this.tunnelManager.startHealthMonitor((activeCount) => {
-			this.stateManager.updateState({ activeTunnelsCount: activeCount });
-		});
+		this.tunnelManager.startHealthMonitor(
+			(activeCount) => {
+				this.stateManager.updateState({ activeTunnelsCount: activeCount });
+			},
+			(hostname) => {
+				// Tunnel has been unhealthy for 30+ seconds — notify user
+				this.log(`Tunnel for ${hostname} appears dead after 30s, prompting user.`);
+				vscode.window
+					.showWarningMessage(
+						`SSH tunnel to "${hostname}" has been unresponsive for over 30 seconds.`,
+						'Reconnect',
+						'Show Logs',
+					)
+					.then(async (action) => {
+						if (action === 'Reconnect') {
+							const hostData = (await readAllStatus()).hostData.get(hostname);
+							const rp = hostData?.port ?? this.configService.remoteProxyPort;
+							const lp = hostData?.localPort ?? this.configService.localProxyPort;
+							await this.reconnectSSHTunnel(hostname, lp, rp);
+						} else if (action === 'Show Logs') {
+							vscode.commands.executeCommand('ssh-relay-guard.showOutput');
+						}
+					});
+			},
+		);
 
 		// Use ConfigService.onChange() — ConfigService handles reload internally,
 		// so cached values are already up-to-date when this fires.

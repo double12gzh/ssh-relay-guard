@@ -49,3 +49,11 @@ try {
 } catch (_) {
     // Ignore — best-effort cleanup
 }
+
+// 3. Remove ~/.srg/ state directory (session port files, etc.)
+try {
+    const srgStateDir = path.join(os.homedir(), '.srg');
+    fs.rmSync(srgStateDir, { recursive: true, force: true });
+} catch (_) {
+    // Ignore — directory may not exist or permissions issue
+}

@@ -22,6 +22,8 @@ interface TunnelInfo {
 export class TunnelManager implements vscode.Disposable {
 	private tunnels: Map<string, TunnelInfo> = new Map();
 	private healthCheckInterval: NodeJS.Timeout | undefined;
+	/** Track consecutive unhealthy checks per host for dead-tunnel detection */
+	private unhealthyStreak: Map<string, number> = new Map();
 	private log: (message: string) => void;
 	private extensionPath: string;
 
@@ -196,6 +198,7 @@ export class TunnelManager implements vscode.Disposable {
 		}
 
 		this.tunnels.delete(hostname);
+		this.unhealthyStreak.delete(hostname);
 	}
 
 	async stopAll(): Promise<void> {
@@ -241,30 +244,76 @@ export class TunnelManager implements vscode.Disposable {
 		}
 	}
 
-	async checkHealth(hostname: string): Promise<boolean> {
+	/**
+	 * Check the health status of a tunnel.
+	 * Returns 'healthy' (connected), 'transitional' (reconnecting/retrying — daemon is recovering),
+	 * or 'unhealthy' (error, disconnected, or unreadable).
+	 */
+	async checkHealth(hostname: string): Promise<'healthy' | 'transitional' | 'unhealthy'> {
 		const info = this.tunnels.get(hostname);
-		if (!info) return false;
+		if (!info) return 'unhealthy';
 
 		try {
 			const content = await fs.readFile(info.statusFile, 'utf-8');
 			const status = JSON.parse(content);
-			return status.state === 'connected';
+			if (status.state === 'connected') {
+				return 'healthy';
+			}
+			// Daemon is actively recovering — don't trigger unhealthy alerts yet
+			if (
+				status.state === 'reconnecting' ||
+				status.state === 'retrying' ||
+				status.state === 'connecting'
+			) {
+				return 'transitional';
+			}
+			return 'unhealthy';
 		} catch {
-			return false;
+			return 'unhealthy';
 		}
 	}
 
-	startHealthMonitor(onTunnelCountChange: (count: number) => void): void {
+	startHealthMonitor(
+		onTunnelCountChange: (count: number) => void,
+		onTunnelUnhealthy?: (hostname: string) => void,
+	): void {
 		this.stopHealthMonitor();
+
+		// Consecutive unhealthy checks required before firing the callback.
+		// 3 checks × 10s interval = ~30 seconds of sustained failure.
+		const UNHEALTHY_THRESHOLD = 3;
 
 		// The Go daemon natively handles process restart and SSH drops,
 		// so TS side only needs to read the JSON status file.
 		this.healthCheckInterval = setInterval(async () => {
 			let activeCount = 0;
 			for (const hostname of this.tunnels.keys()) {
-				const healthy = await this.checkHealth(hostname);
-				if (healthy) {
+				const health = await this.checkHealth(hostname);
+				if (health === 'healthy') {
 					activeCount++;
+					// Reset streak on recovery
+					if (this.unhealthyStreak.has(hostname)) {
+						this.log(
+							`HealthMonitor: ${hostname} recovered after ${this.unhealthyStreak.get(hostname)} unhealthy checks`,
+						);
+						this.unhealthyStreak.delete(hostname);
+					}
+				} else if (health === 'transitional') {
+					// Daemon is actively recovering (reconnecting/retrying).
+					// Don't count as active, but don't increment unhealthy streak either —
+					// the Go daemon is handling it. Reset streak to give it time.
+					this.unhealthyStreak.delete(hostname);
+				} else {
+					// Truly unhealthy (error state, file unreadable, etc.)
+					const streak = (this.unhealthyStreak.get(hostname) ?? 0) + 1;
+					this.unhealthyStreak.set(hostname, streak);
+					// Fire callback exactly once when threshold is reached
+					if (streak === UNHEALTHY_THRESHOLD && onTunnelUnhealthy) {
+						this.log(
+							`HealthMonitor: ${hostname} unhealthy for ${streak} consecutive checks, notifying...`,
+						);
+						onTunnelUnhealthy(hostname);
+					}
 				}
 			}
 			onTunnelCountChange(activeCount);

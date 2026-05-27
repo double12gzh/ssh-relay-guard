@@ -237,9 +237,33 @@ export class DashboardManager {
 		// Start connection monitor when panel opens (remote only)
 		if (!this.isLocal) {
 			this.connectionMonitor.start();
-			this.connectionMonitor.onUpdate(() => {
+			const monitorDisposable = this.connectionMonitor.onUpdate(() => {
 				this.updatePanelIfOpen();
 				this.statusBarController.update();
+			});
+
+			// Collect disposables tied to panel lifetime
+			const panelDisposables: vscode.Disposable[] = [monitorDisposable];
+
+			this.statusPanel.onDidDispose(() => {
+				this.statusPanel = undefined;
+				this.connectionMonitor.stop();
+				for (const d of panelDisposables) {
+					d.dispose();
+				}
+			});
+
+			// Smart throttling: pause monitor when panel is hidden, resume when visible
+			this.statusPanel.onDidChangeViewState((e) => {
+				if (e.webviewPanel.visible) {
+					this.connectionMonitor.resume();
+				} else {
+					this.connectionMonitor.pause();
+				}
+			});
+		} else {
+			this.statusPanel.onDidDispose(() => {
+				this.statusPanel = undefined;
 			});
 		}
 
@@ -264,24 +288,6 @@ export class DashboardManager {
 			undefined,
 			this.context.subscriptions,
 		);
-
-		this.statusPanel.onDidDispose(() => {
-			this.statusPanel = undefined;
-			if (!this.isLocal) {
-				this.connectionMonitor.stop();
-			}
-		});
-
-		// Smart throttling: pause monitor when panel is hidden, resume when visible
-		this.statusPanel.onDidChangeViewState((e) => {
-			if (!this.isLocal) {
-				if (e.webviewPanel.visible) {
-					this.connectionMonitor.resume();
-				} else {
-					this.connectionMonitor.pause();
-				}
-			}
-		});
 	}
 
 	// -----------------------------------------------------------------------

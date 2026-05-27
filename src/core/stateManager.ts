@@ -51,6 +51,23 @@ export class StateManager {
 					(this.state as Record<keyof ProxyState, unknown>)[key] = newState[key];
 					changed = true;
 				}
+			} else if (
+				this.state[key] !== null &&
+				newState[key] !== null &&
+				typeof this.state[key] === 'object' &&
+				typeof newState[key] === 'object' &&
+				!(this.state[key] instanceof Date) &&
+				!Array.isArray(this.state[key])
+			) {
+				// Shallow comparison for plain Record objects (e.g. hostPortData)
+				const obj1 = this.state[key] as Record<string, unknown>;
+				const obj2 = newState[key] as Record<string, unknown>;
+				const keys1 = Object.keys(obj1);
+				const keys2 = Object.keys(obj2);
+				if (keys1.length !== keys2.length || keys1.some((k) => obj1[k] !== obj2[k])) {
+					(this.state as Record<keyof ProxyState, unknown>)[key] = newState[key];
+					changed = true;
+				}
 			} else if (this.state[key] !== newState[key]) {
 				(this.state as Record<keyof ProxyState, unknown>)[key] = newState[key];
 				changed = true;

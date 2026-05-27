@@ -6,6 +6,9 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { runDiagnostics, DiagnosticReport, generateReportText } from '../diagnostics/healthChecker';
 import { ConfigService } from '../core/configService';
 import { StateManager } from '../core/stateManager';
@@ -147,6 +150,24 @@ export class MessageRouter {
 				process.env.SRG_PROXY_TYPE = type;
 				process.env.SRG_PROXY_PORT = String(port);
 				process.env.SRG_REWRITE_CLOUDCODE = rewrite ? 'true' : 'false';
+
+				// Also sync to ~/.srg/ state file so LS wrapper picks up
+				// the new port even if it restarts independently.
+				try {
+					const srgDir = path.join(os.homedir() || '/root', '.srg');
+					if (!fs.existsSync(srgDir)) {
+						fs.mkdirSync(srgDir, { recursive: true });
+					}
+					const sessionKey =
+						process.env.VSCODE_IPC_HOOK_CLI ||
+						process.env.SSH_CLIENT ||
+						process.env.SSH_CONNECTION ||
+						'default';
+					const safeName = sessionKey.replace(/[^a-zA-Z0-9]/g, '_');
+					fs.writeFileSync(path.join(srgDir, `port_${safeName}`), String(port), 'utf-8');
+				} catch {
+					// Best-effort — don't block config save
+				}
 			}
 
 			if (newConfig.localProxyPort !== undefined) {
