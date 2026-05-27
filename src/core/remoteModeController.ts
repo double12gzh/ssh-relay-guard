@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { buildInstallScript, buildRestoreScript } from '../setup/remoteInstaller';
 import { DashboardManager } from '../panel/dashboardManager';
 import { ConfigService } from './configService';
@@ -367,5 +370,26 @@ export class RemoteModeController implements IModeController {
 		this.log(
 			`Injected process.env: SRG_PROXY_ADDR=${host}:${port}, type=${proxyType}, NO_PROXY=${noProxyList}`,
 		);
+
+		// Write active port to local status file to bypass multi-user/parent-child environment isolation
+		try {
+			const srgDir = path.join(os.homedir() || '/root', '.srg');
+			if (!fs.existsSync(srgDir)) {
+				fs.mkdirSync(srgDir, { recursive: true });
+			}
+			const sessionKey =
+				process.env.VSCODE_IPC_HOOK_CLI ||
+				process.env.SSH_CLIENT ||
+				process.env.SSH_CONNECTION ||
+				'default';
+			const safeName = sessionKey.replace(/[^a-zA-Z0-9]/g, '_');
+			const statusFilePath = path.join(srgDir, `port_${safeName}`);
+			fs.writeFileSync(statusFilePath, String(port), 'utf-8');
+			this.log(
+				`Successfully wrote dynamic proxy port status file: ${statusFilePath} -> ${port}`,
+			);
+		} catch (err) {
+			this.log(`Failed to write dynamic proxy port status file: ${err}`);
+		}
 	}
 }
