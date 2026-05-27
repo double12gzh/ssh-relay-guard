@@ -2,6 +2,17 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.1.0] - 2026-05-27
+
+### Added
+
+- **Session-Isolated Dynamic Port Fallback**: Implemented an elegant port lookup fallback to bypass IDE Server parent-child process environment variable isolation. The remote extension dynamically writes the active port to `~/.srg/port_<session_key>` (based on `VSCODE_IPC_HOOK_CLI` or SSH connection variables), and the Language Server wrapper `ls-wrapper.sh` automatically reads from this file as a fallback. This guarantees conflict-free isolation even when multiple developers share the exact same Linux system account.
+- **Clean State Directory**: All transient session port files are organized inside a unified `~/.srg/` folder, maintaining a spotless home directory.
+
+### Fixed
+
+- **SSH Auto-Reconnection Port Escalation**: Fixed a critical bug in the Go tunnel daemon (`srg-tunnel-client`) where all exit code 255 connection errors (e.g. network drops, DNS timeouts) were incorrectly treated as port binding conflicts. The daemon now reads `stderr` to explicitly match `"port forwarding failed"` or `"forwarding failed"` to confirm actual port conflicts. This ensures that network disconnections retry and reconnect on the same base port, allowing remote VS Code connections to recover seamlessly without manual command execution or window reloads.
+
 ## [0.0.9] - 2026-05-24
 
 ### Added

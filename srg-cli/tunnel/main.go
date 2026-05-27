@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -124,6 +126,9 @@ func main() {
 			continue
 		}
 
+		var portForwardFailure bool
+		var pffMu sync.Mutex
+
 		// Read stderr line by line
 		go func() {
 			scanner := bufio.NewScanner(stderr)
@@ -131,8 +136,12 @@ func main() {
 				line := scanner.Text()
 				log.Printf("[ssh] %s", line)
 				
-				// We can detect specific errors here if needed, but ExitOnForwardFailure=yes
-				// means ssh will exit with 255 if the port is already bound, which is much more reliable.
+				if strings.Contains(strings.ToLower(line), "port forwarding failed") || 
+				   strings.Contains(strings.ToLower(line), "forwarding failed") {
+					pffMu.Lock()
+					portForwardFailure = true
+					pffMu.Unlock()
+				}
 			}
 		}()
 
@@ -156,7 +165,9 @@ func main() {
 			isPortBindingError := false
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				if exitErr.ExitCode() == 255 {
-					isPortBindingError = true
+					pffMu.Lock()
+					isPortBindingError = portForwardFailure
+					pffMu.Unlock()
 				}
 			}
 
