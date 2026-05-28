@@ -2,7 +2,7 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
-## [0.1.2] - 2026-05-28
+## [0.1.1] - 2026-05-28
 
 ### Fixed
 
@@ -12,9 +12,6 @@ All notable changes to "SSH Relay Guard" will be documented in this file.
 - **LS Wrapper Multi-Key State File Lookup**: The LS wrapper script now iterates all candidate session keys (`VSCODE_IPC_HOOK_CLI`, `SSH_CLIENT`, `SSH_CONNECTION`, `default`) to locate the `~/.srg/port_*` state file, matching the multi-key write strategy on the extension side.
 - **Test Suite Configuration Pollution**: Fixed a bug where tests modified the global `localProxyPort` configuration permanently. Added proper cleanup in `teardown()` to restore the global environment.
 
-## [0.1.1] - 2026-05-28
-
-### Fixed
 
 - **Health Monitor Dead Tunnel Detection**: The tunnel health monitor now detects sustained unhealthy tunnels (30+ seconds) and prompts the user with a "Reconnect" / "Show Logs" notification. Previously, tunnel failures were silently ignored after initial connection.
 - **Uninstall Cleanup for `~/.srg/`**: The uninstall lifecycle script now removes the `~/.srg/` state directory (session port files) in addition to SSH config artifacts.
