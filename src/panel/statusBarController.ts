@@ -8,7 +8,7 @@
 import * as vscode from 'vscode';
 import { ConfigService } from '../core/configService';
 import { StateManager } from '../core/stateManager';
-import { isProxyFunctional } from '../utils/portProbe';
+import { isPortReachable, isProxyFunctional } from '../utils/portProbe';
 import { ConnectionMonitor } from '../traffic/connectionMonitor';
 import { resolveStatusAppearance } from './panelRenderer';
 import { dict, Lang } from './translations';
@@ -51,30 +51,53 @@ export class StatusBarController {
 	 * to minimize overhead.
 	 */
 	startMonitor(): void {
-		if (this.isLocal || this.statusBarMonitor) {
+		if (this.statusBarMonitor) {
 			return;
 		}
 
-		this.statusBarMonitor = setInterval(async () => {
-			const proxyType = this.configService.proxyType as 'http' | 'socks5';
+		if (this.isLocal) {
+			// Local side: low-frequency check (30s) to detect local proxy crashes.
+			// Uses TCP port probe (cheaper) since we only need reachability, not protocol.
+			this.statusBarMonitor = setInterval(async () => {
+				const reachable = await isPortReachable(
+					'127.0.0.1',
+					this.configService.localProxyPort,
+					2000,
+				);
 
-			// Protocol-level check: confirms the proxy actually responds,
-			// not just that the port is open (which could be another process).
-			const functional = await isProxyFunctional(
-				this.configService.remoteProxyHost,
-				this.configService.remoteProxyPort,
-				proxyType,
-				2000,
-			);
+				// Only update on state transition to avoid unnecessary redraws
+				if (reachable !== this.getStatus().localProxyReachable) {
+					this.stateManager.updateState({
+						localProxyReachable: reachable,
+					});
+				}
+			}, 30_000);
+		} else {
+			// Remote side: higher-frequency check (5s) with protocol-level validation.
+			this.statusBarMonitor = setInterval(async () => {
+				const proxyType = this.configService.proxyType as 'http' | 'socks5';
+				const detectedPort =
+					this.stateManager.getState().detectedRemotePort ||
+					this.configService.remoteProxyPort;
 
-			// Only update on state transition to avoid unnecessary redraws
-			if (functional !== this.getStatus().remoteProxyFunctional) {
-				this.stateManager.updateState({
-					remoteProxyFunctional: functional,
-					remoteProxyReachable: functional,
-				});
-			}
-		}, 5000);
+				// Protocol-level check: confirms the proxy actually responds,
+				// not just that the port is open (which could be another process).
+				const functional = await isProxyFunctional(
+					this.configService.remoteProxyHost,
+					detectedPort,
+					proxyType,
+					2000,
+				);
+
+				// Only update on state transition to avoid unnecessary redraws
+				if (functional !== this.getStatus().remoteProxyFunctional) {
+					this.stateManager.updateState({
+						remoteProxyFunctional: functional,
+						remoteProxyReachable: functional,
+					});
+				}
+			}, 5000);
+		}
 	}
 
 	stopMonitor(): void {

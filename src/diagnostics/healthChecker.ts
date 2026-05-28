@@ -62,14 +62,16 @@ type ProgressCallback = (checks: DiagnosticCheck[]) => void;
  * @param configService - Centralized configuration service
  * @param onProgress - Optional callback for progress updates
  * @param extensionPath - Optional path to the current extension for precise binary detection
+ * @param detectedPort - Optional dynamically detected tunnel port overriding global config
  */
 export async function runDiagnostics(
 	configService: ConfigService,
 	onProgress?: ProgressCallback,
 	extensionPath?: string,
+	detectedPort?: number,
 ): Promise<DiagnosticReport> {
 	const localProxyPort = configService.localProxyPort;
-	const remoteProxyPort = configService.remoteProxyPort;
+	const remoteProxyPort = detectedPort || configService.remoteProxyPort;
 	const remoteProxyHost = configService.remoteProxyHost;
 	const proxyType = configService.proxyType;
 	const isLocal = isRunningLocally();

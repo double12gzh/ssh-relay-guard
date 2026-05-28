@@ -2,6 +2,34 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.1.1] - 2026-05-28
+
+### Fixed
+
+- **Remote Tunnel Detection Timing on Startup**: Added a robust retry loop to remote port detection to allow local background SSH tunnels sufficient time (up to 7.5 seconds) to establish connections before falling back.
+- **Dynamic Port Handshake Verification**: Fixed hardcoded port scanning in status updates, dashboard metrics, and health diagnostics, ensuring they accurately target and verify the dynamically negotiated/detected remote port.
+- **SSH Port Forwarding Local Port Mismatch**: Implemented automatic startup synchronization of persistent SSH `config.srg` entries with the current `localProxyPort` and `enableLocalForwarding` configurations. This guarantees that stale local ports are automatically corrected on extension startup, preventing `Connection reset by peer` errors.
+- **LS Wrapper Multi-Key State File Lookup**: The LS wrapper script now iterates all candidate session keys (`VSCODE_IPC_HOOK_CLI`, `SSH_CLIENT`, `SSH_CONNECTION`, `default`) to locate the `~/.srg/port_*` state file, matching the multi-key write strategy on the extension side.
+- **Test Suite Configuration Pollution**: Fixed a bug where tests modified the global `localProxyPort` configuration permanently. Added proper cleanup in `teardown()` to restore the global environment.
+
+
+- **Health Monitor Dead Tunnel Detection**: The tunnel health monitor now detects sustained unhealthy tunnels (30+ seconds) and prompts the user with a "Reconnect" / "Show Logs" notification. Previously, tunnel failures were silently ignored after initial connection.
+- **Uninstall Cleanup for `~/.srg/`**: The uninstall lifecycle script now removes the `~/.srg/` state directory (session port files) in addition to SSH config artifacts.
+- **Dashboard Config Save Port Sync**: Saving proxy configuration from the Dashboard panel now correctly writes the updated port to the `~/.srg/port_<session>` state file, ensuring the LS wrapper picks up the new port on restart.
+- **Go Daemon stderr Race Condition**: Fixed a race condition in the Go tunnel daemon where the `portForwardFailure` flag could be checked before the stderr goroutine finished reading. Added a `stderrDone` channel with 500ms drain timeout to ensure all stderr output is processed before making port-retry decisions.
+
+### Improved
+
+- **Go Daemon State Distinction**: The Go tunnel daemon now emits `connecting` for first-time attempts and `reconnecting` for post-drop recovery. The TS health monitor uses tri-state checks (`healthy` / `transitional` / `unhealthy`) to avoid premature alerts while the daemon is actively recovering.
+- **ConnectionMonitor Disposable Leak**: Fixed a memory leak where `onUpdate` callback Disposables were dropped on each panel open, causing callback accumulation. Now properly stored and cleaned up on panel dispose.
+- **Local Proxy Monitoring**: Added a 30-second interval background monitor for local proxy reachability. The status bar icon now automatically updates if the local proxy (e.g., Clash) crashes or stops.
+- **State Manager Record Comparison**: `hostPortData` (a `Record<string, number>`) now uses shallow key-value comparison instead of reference equality, preventing unnecessary UI redraws when port data hasn't changed.
+
+### Optimized
+
+- **Port Detection Speed**: `detectTunnelPort` now uses a race-to-first-success pattern instead of `Promise.all`. When the tunnel is on a nearby port, detection completes in ~100ms instead of waiting up to 3s for all probes.
+- **Config Listener Performance**: `ConfigService.onChange` now uses `Set` instead of `Array` for O(1) add/delete operations.
+
 ## [0.1.0] - 2026-05-27
 
 ### Added

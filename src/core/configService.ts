@@ -17,7 +17,7 @@ export class ConfigService implements vscode.Disposable {
 	private _rewriteCloudCodeEndpoint: boolean;
 	private _setGlobalHttpProxy: boolean;
 	private disposable: vscode.Disposable;
-	private changeListeners: Array<() => void> = [];
+	private changeListeners: Set<() => void> = new Set();
 
 	constructor() {
 		this._localProxyPort = 7890;
@@ -82,17 +82,14 @@ export class ConfigService implements vscode.Disposable {
 	 * Returns a disposable to unregister.
 	 */
 	onChange(listener: () => void): vscode.Disposable {
-		this.changeListeners.push(listener);
+		this.changeListeners.add(listener);
 		return new vscode.Disposable(() => {
-			const idx = this.changeListeners.indexOf(listener);
-			if (idx >= 0) {
-				this.changeListeners.splice(idx, 1);
-			}
+			this.changeListeners.delete(listener);
 		});
 	}
 
 	dispose(): void {
 		this.disposable.dispose();
-		this.changeListeners = [];
+		this.changeListeners.clear();
 	}
 }
