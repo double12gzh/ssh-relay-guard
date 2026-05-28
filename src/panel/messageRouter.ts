@@ -90,6 +90,7 @@ export class MessageRouter {
 		this.forceRenderPanel();
 
 		try {
+			const detectedPort = this.stateManager.getState().detectedRemotePort;
 			this.currentDiagnosticReport = await runDiagnostics(
 				this.configService,
 				(checks) => {
@@ -102,6 +103,7 @@ export class MessageRouter {
 					}
 				},
 				this.context.extensionUri.fsPath,
+				detectedPort,
 			);
 		} finally {
 			this.isRunningDiagnostics = false;
@@ -158,13 +160,21 @@ export class MessageRouter {
 					if (!fs.existsSync(srgDir)) {
 						fs.mkdirSync(srgDir, { recursive: true });
 					}
-					const sessionKey =
-						process.env.VSCODE_IPC_HOOK_CLI ||
-						process.env.SSH_CLIENT ||
-						process.env.SSH_CONNECTION ||
-						'default';
-					const safeName = sessionKey.replace(/[^a-zA-Z0-9]/g, '_');
-					fs.writeFileSync(path.join(srgDir, `port_${safeName}`), String(port), 'utf-8');
+					const keys = [
+						process.env.VSCODE_IPC_HOOK_CLI,
+						process.env.SSH_CLIENT,
+						process.env.SSH_CONNECTION,
+						'default',
+					].filter(Boolean) as string[];
+
+					for (const key of keys) {
+						const safeName = key.replace(/[^a-zA-Z0-9]/g, '_');
+						fs.writeFileSync(
+							path.join(srgDir, `port_${safeName}`),
+							String(port),
+							'utf-8',
+						);
+					}
 				} catch {
 					// Best-effort — don't block config save
 				}

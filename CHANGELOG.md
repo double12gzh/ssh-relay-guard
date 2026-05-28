@@ -2,6 +2,16 @@
 
 All notable changes to "SSH Relay Guard" will be documented in this file.
 
+## [0.1.2] - 2026-05-28
+
+### Fixed
+
+- **Remote Tunnel Detection Timing on Startup**: Added a robust retry loop to remote port detection to allow local background SSH tunnels sufficient time (up to 7.5 seconds) to establish connections before falling back.
+- **Dynamic Port Handshake Verification**: Fixed hardcoded port scanning in status updates, dashboard metrics, and health diagnostics, ensuring they accurately target and verify the dynamically negotiated/detected remote port.
+- **SSH Port Forwarding Local Port Mismatch**: Implemented automatic startup synchronization of persistent SSH `config.srg` entries with the current `localProxyPort` and `enableLocalForwarding` configurations. This guarantees that stale local ports are automatically corrected on extension startup, preventing `Connection reset by peer` errors.
+- **LS Wrapper Multi-Key State File Lookup**: The LS wrapper script now iterates all candidate session keys (`VSCODE_IPC_HOOK_CLI`, `SSH_CLIENT`, `SSH_CONNECTION`, `default`) to locate the `~/.srg/port_*` state file, matching the multi-key write strategy on the extension side.
+- **Test Suite Configuration Pollution**: Fixed a bug where tests modified the global `localProxyPort` configuration permanently. Added proper cleanup in `teardown()` to restore the global environment.
+
 ## [0.1.1] - 2026-05-28
 
 ### Fixed

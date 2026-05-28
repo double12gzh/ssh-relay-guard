@@ -72,7 +72,25 @@ export class LocalModeController implements IModeController {
 			});
 		});
 
-		const initialStatus = await readAllStatus();
+		// ── Sync SSH config on startup ──────────────────────────────────────────
+		// Ensures that any host entries in config.srg with stale localPorts or mismatched states
+		// are automatically synchronized with the active localProxyPort and enableLocalForwarding configurations.
+		const statusBeforeSync = await readAllStatus();
+		let needsStateUpdate = false;
+		for (const host of statusBeforeSync.hosts) {
+			const hostData = statusBeforeSync.hostData.get(host);
+			const hostRemotePort = hostData?.port ?? remotePort;
+			const hostLocalPort = hostData?.localPort;
+			if (hostLocalPort !== localPort) {
+				this.log(
+					`Syncing host ${host} to use current localProxyPort ${localPort} (was ${hostLocalPort})`,
+				);
+				await updateForHost(host, hostRemotePort, localPort, enable, (m) => this.log(m));
+				needsStateUpdate = true;
+			}
+		}
+
+		const initialStatus = needsStateUpdate ? await readAllStatus() : statusBeforeSync;
 		const hasHosts = initialStatus.hosts.length > 0;
 		this.stateManager.updateState({
 			sshConfigEnabled: initialStatus.enabled && hasHosts,

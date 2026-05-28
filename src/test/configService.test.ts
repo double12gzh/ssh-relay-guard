@@ -15,6 +15,9 @@ suite('ConfigService Tests', () => {
 
 	teardown(async () => {
 		configService.dispose();
+		const config = vscode.workspace.getConfiguration('ssh-relay-guard');
+		await config.update('localProxyPort', undefined, vscode.ConfigurationTarget.Global);
+		await config.update('setGlobalHttpProxy', undefined, vscode.ConfigurationTarget.Global);
 	});
 
 	test('should initialize with default values from package.json', () => {

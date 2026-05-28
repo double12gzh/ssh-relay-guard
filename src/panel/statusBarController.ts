@@ -76,12 +76,15 @@ export class StatusBarController {
 			// Remote side: higher-frequency check (5s) with protocol-level validation.
 			this.statusBarMonitor = setInterval(async () => {
 				const proxyType = this.configService.proxyType as 'http' | 'socks5';
+				const detectedPort =
+					this.stateManager.getState().detectedRemotePort ||
+					this.configService.remoteProxyPort;
 
 				// Protocol-level check: confirms the proxy actually responds,
 				// not just that the port is open (which could be another process).
 				const functional = await isProxyFunctional(
 					this.configService.remoteProxyHost,
-					this.configService.remoteProxyPort,
+					detectedPort,
 					proxyType,
 					2000,
 				);

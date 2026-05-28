@@ -31,16 +31,21 @@ EXTENSION_BIN_PATH="__EXTENSION_BIN_PATH__"
 # Fallback: if environment variable is not passed (due to IDE Server parent-child process isolation),
 # read the port dynamically written by the extension to ~/.srg/port_<session_key>
 if [ -z "$PROXY_ADDR" ]; then
-    SESSION_KEY="${VSCODE_IPC_HOOK_CLI:-${SSH_CLIENT:-${SSH_CONNECTION:-default}}}"
-    SAFE_NAME=$(echo -n "$SESSION_KEY" | tr -c 'a-zA-Z0-9' '_')
-    STATE_FILE="$HOME/.srg/port_${SAFE_NAME}"
-    if [ -f "$STATE_FILE" ]; then
-        DETECTED_PORT=$(cat "$STATE_FILE" 2>/dev/null | tr -d '[:space:]')
-        if [ -n "$DETECTED_PORT" ]; then
-            PROXY_ADDR="127.0.0.1:$DETECTED_PORT"
-            _srg_log "Fallback to state file port: $PROXY_ADDR"
+    # Try all candidates in order to find the state file.
+    # The LS process may have different environment variables from the Extension Host.
+    for key in "$VSCODE_IPC_HOOK_CLI" "$SSH_CLIENT" "$SSH_CONNECTION" "default"; do
+        [ -z "$key" ] && continue
+        SAFE_NAME=$(echo -n "$key" | tr -c 'a-zA-Z0-9' '_')
+        STATE_FILE="$HOME/.srg/port_${SAFE_NAME}"
+        if [ -f "$STATE_FILE" ]; then
+            DETECTED_PORT=$(cat "$STATE_FILE" 2>/dev/null | tr -d '[:space:]')
+            if [ -n "$DETECTED_PORT" ]; then
+                PROXY_ADDR="127.0.0.1:$DETECTED_PORT"
+                _srg_log "Fallback to state file port (key: $key): $PROXY_ADDR"
+                break
+            fi
         fi
-    fi
+    done
 fi
 
 _srg_log "SRG_PROXY_ADDR=$PROXY_ADDR"

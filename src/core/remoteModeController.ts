@@ -66,44 +66,55 @@ export class RemoteModeController implements IModeController {
 			}
 		}
 
-		// 2. Fast path: configured port is reachable AND acts like a proxy
-		if (await isProxyFunctional(host, configuredPort, proxyType, timeout)) {
-			return configuredPort;
-		}
+		// 2. Retry loop for startup connection delay
+		const RETRIES = 5;
+		const DELAY_MS = 1500;
 
-		// 3. Probe nearby ports — race to first success (Go daemon uses max 10 retries)
-		const MAX_OFFSET = 10;
-		const probes = Array.from({ length: MAX_OFFSET }, (_, i) => {
-			const port = configuredPort + i + 1;
-			return isProxyFunctional(host, port, proxyType, timeout).then((ok) =>
-				ok ? port : null,
-			);
-		});
-
-		// Race all probes: resolve as soon as ANY port succeeds.
-		// The sentinel timeout resolves to null after all probes would have timed out,
-		// ensuring we don't hang forever if nothing responds.
-		const sentinel = new Promise<null>((r) => setTimeout(() => r(null), timeout + 500));
-		const raceProbes = probes.map((p) =>
-			p.then((port) => {
-				if (port !== null) return port;
-				// Unsuccessful probes should never win the race
-				return new Promise<never>(() => {});
-			}),
-		);
-
-		const detectedPort = await Promise.race([...raceProbes, sentinel]);
-
-		if (detectedPort) {
+		for (let attempt = 1; attempt <= RETRIES; attempt++) {
 			this.log(
-				`detectTunnelPort: configured port ${configuredPort} unreachable, detected tunnel on port ${detectedPort}`,
+				`detectTunnelPort: attempt ${attempt}/${RETRIES} to find functional tunnel port...`,
 			);
-			return detectedPort;
+
+			// Check configured port first
+			if (await isProxyFunctional(host, configuredPort, proxyType, timeout)) {
+				return configuredPort;
+			}
+
+			// Probe nearby ports
+			const MAX_OFFSET = 10;
+			const probes = Array.from({ length: MAX_OFFSET }, (_, i) => {
+				const port = configuredPort + i + 1;
+				return isProxyFunctional(host, port, proxyType, timeout).then((ok) =>
+					ok ? port : null,
+				);
+			});
+
+			const sentinel = new Promise<null>((r) => setTimeout(() => r(null), timeout + 500));
+			const raceProbes = probes.map((p) =>
+				p.then((port) => {
+					if (port !== null) return port;
+					return new Promise<never>(() => {});
+				}),
+			);
+
+			const detectedPort = await Promise.race([...raceProbes, sentinel]);
+
+			if (detectedPort) {
+				this.log(
+					`detectTunnelPort: attempt ${attempt} succeeded, detected tunnel on port ${detectedPort}`,
+				);
+				return detectedPort;
+			}
+
+			if (attempt < RETRIES) {
+				this.log(`detectTunnelPort: tunnel not ready yet, retrying in ${DELAY_MS}ms...`);
+				await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+			}
 		}
 
 		// No port found — tunnel likely not established, use configured port
 		this.log(
-			`detectTunnelPort: no reachable port in range ${configuredPort}-${configuredPort + MAX_OFFSET}, using configured ${configuredPort}`,
+			`detectTunnelPort: all attempts failed. No reachable port in range ${configuredPort}-${configuredPort + 10}, using configured ${configuredPort} as fallback`,
 		);
 		return configuredPort;
 	}
@@ -388,17 +399,21 @@ export class RemoteModeController implements IModeController {
 			if (!fs.existsSync(srgDir)) {
 				fs.mkdirSync(srgDir, { recursive: true });
 			}
-			const sessionKey =
-				process.env.VSCODE_IPC_HOOK_CLI ||
-				process.env.SSH_CLIENT ||
-				process.env.SSH_CONNECTION ||
-				'default';
-			const safeName = sessionKey.replace(/[^a-zA-Z0-9]/g, '_');
-			const statusFilePath = path.join(srgDir, `port_${safeName}`);
-			fs.writeFileSync(statusFilePath, String(port), 'utf-8');
-			this.log(
-				`Successfully wrote dynamic proxy port status file: ${statusFilePath} -> ${port}`,
-			);
+			const keys = [
+				process.env.VSCODE_IPC_HOOK_CLI,
+				process.env.SSH_CLIENT,
+				process.env.SSH_CONNECTION,
+				'default',
+			].filter(Boolean) as string[];
+
+			for (const key of keys) {
+				const safeName = key.replace(/[^a-zA-Z0-9]/g, '_');
+				const statusFilePath = path.join(srgDir, `port_${safeName}`);
+				fs.writeFileSync(statusFilePath, String(port), 'utf-8');
+				this.log(
+					`Successfully wrote dynamic proxy port status file: ${statusFilePath} -> ${port}`,
+				);
+			}
 		} catch (err) {
 			this.log(`Failed to write dynamic proxy port status file: ${err}`);
 		}

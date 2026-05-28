@@ -159,12 +159,11 @@ export class DashboardManager {
 			newState = { localProxyReachable };
 		} else {
 			const proxyType = this.configService.proxyType as 'http' | 'socks5';
+			const detectedPort =
+				this.stateManager.getState().detectedRemotePort ||
+				this.configService.remoteProxyPort;
 			const [functional, setupDone] = await Promise.all([
-				isProxyFunctional(
-					this.configService.remoteProxyHost,
-					this.configService.remoteProxyPort,
-					proxyType,
-				),
+				isProxyFunctional(this.configService.remoteProxyHost, detectedPort, proxyType),
 				isSrgSetupCompleted(),
 			]);
 
